@@ -44,7 +44,27 @@ function App() {
     }, 500);
   }, []);
 
-  const startGame = () => setAppState(AppState.GAME);
+  // Attempt to enter fullscreen
+  const requestFullScreen = () => {
+    const doc = document.documentElement as any;
+    if (doc.requestFullscreen) {
+      doc.requestFullscreen().catch((err: any) => {
+        console.log("Fullscreen request denied or not supported:", err);
+      });
+    } else if (doc.mozRequestFullScreen) { // Firefox
+      doc.mozRequestFullScreen();
+    } else if (doc.webkitRequestFullscreen) { // Chrome, Safari and Opera
+      doc.webkitRequestFullscreen();
+    } else if (doc.msRequestFullscreen) { // IE/Edge
+      doc.msRequestFullscreen();
+    }
+  };
+
+  const startGame = () => {
+    // Try to go fullscreen when game starts to maximize screen real estate
+    requestFullScreen();
+    setAppState(AppState.GAME);
+  };
   
   const handlePinSuccess = () => {
     setAppState(AppState.TITLE);
@@ -56,6 +76,8 @@ function App() {
   };
 
   const handleRetry = () => {
+    // Try fullscreen again on retry just in case
+    requestFullScreen();
     setAppState(AppState.GAME);
   };
 
@@ -72,7 +94,7 @@ function App() {
   // 1. Force Landscape Warning
   if (isPortrait) {
     return (
-      <div className="h-full w-full flex flex-col items-center justify-center bg-slate-900 text-white p-6 text-center z-50">
+      <div className="h-[100dvh] w-full flex flex-col items-center justify-center bg-slate-900 text-white p-6 text-center z-50">
         <div className="text-6xl mb-4 animate-bounce">📱↔️</div>
         <h1 className="text-2xl font-bold mb-2">画面を横向きにしてください</h1>
         <p className="text-gray-400 text-sm">
@@ -85,19 +107,27 @@ function App() {
 
   if (appState === AppState.LOADING) {
     return (
-      <div className="h-full w-full flex items-center justify-center bg-orange-50">
+      <div className="h-[100dvh] w-full flex items-center justify-center bg-orange-50">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
       </div>
     );
   }
 
+  // Use h-[100dvh] to ensure we use the dynamic viewport height, 
+  // respecting browser bars if they exist, or full screen if they don't.
+  const containerClass = "h-[100dvh] w-full overflow-hidden";
+
   if (appState === AppState.PIN) {
-    return <PinScreen onSuccess={handlePinSuccess} />;
+    return (
+      <div className={containerClass}>
+        <PinScreen onSuccess={handlePinSuccess} />
+      </div>
+    );
   }
 
   if (appState === AppState.TITLE) {
     return (
-      <div className="h-full w-full flex items-center justify-center bg-orange-50 p-6">
+      <div className={`${containerClass} flex items-center justify-center bg-orange-50 p-6`}>
         {/* Landscape Layout: Left Title, Right Buttons */}
         <div className="flex w-full max-w-4xl items-center justify-around">
           
@@ -135,21 +165,31 @@ function App() {
   }
 
   if (appState === AppState.GAME) {
-    return <GameScreen onGameOver={handleGameOver} />;
+    return (
+      <div className={containerClass}>
+        <GameScreen onGameOver={handleGameOver} />
+      </div>
+    );
   }
 
   if (appState === AppState.RESULT) {
     return (
-      <ResultScreen 
-        score={lastScore} 
-        onRetry={handleRetry} 
-        onShowRanking={showRanking} 
-      />
+      <div className={containerClass}>
+        <ResultScreen 
+          score={lastScore} 
+          onRetry={handleRetry} 
+          onShowRanking={showRanking} 
+        />
+      </div>
     );
   }
 
   if (appState === AppState.RANKING) {
-    return <RankingScreen onBack={backToTitle} />;
+    return (
+      <div className={containerClass}>
+        <RankingScreen onBack={backToTitle} />
+      </div>
+    );
   }
 
   return null;

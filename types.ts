@@ -35,7 +35,10 @@ export interface PlayerState {
   height: number;
 }
 
+export type ObstacleType = 'GROUND_SMALL' | 'GROUND_LARGE' | 'FLYING_SMALL' | 'FLYING_LARGE';
+
 export interface Obstacle {
+  type: ObstacleType;
   x: number;
   y: number;
   width: number;
