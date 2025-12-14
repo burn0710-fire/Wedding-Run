@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import gameConfigData from '../config/game';
+import assetConfig from '../config/assets';
 import { GameConfig, PlayerState, Obstacle, ObstacleType } from '../types';
 
 const config: GameConfig = gameConfigData;
@@ -8,17 +9,45 @@ interface GameScreenProps {
   onGameOver: (score: number) => void;
 }
 
+// Image Loader Helper
+const loadImage = (src: string): Promise<HTMLImageElement | null> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = src;
+    img.onload = () => resolve(img);
+    img.onerror = () => {
+      console.warn(`Failed to load image: ${src}`);
+      resolve(null);
+    };
+  });
+};
+
 const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
   const scoreRef = useRef<number>(0);
   const [currentScore, setCurrentScore] = useState(0); // For UI display only
   
+  // Loaded Assets Ref
+  const assetsRef = useRef({
+    bgFar: null as HTMLImageElement | null,
+    bgMid: null as HTMLImageElement | null,
+    ground: null as HTMLImageElement | null,
+    player: null as HTMLImageElement | null,
+    obsGroundSmall: null as HTMLImageElement | null,
+    obsGroundLarge: null as HTMLImageElement | null,
+    obsFlySmall: null as HTMLImageElement | null,
+    obsFlyLarge: null as HTMLImageElement | null,
+    loaded: false
+  });
+
   // Game State Refs
   const gameState = useRef({
     isPlaying: true,
     speed: config.initialSpeed,
     frameCount: 0,
+    bgFarOffset: 0,
+    bgMidOffset: 0,
     nextSpawnThreshold: 0, // Next spawn frame count target
     player: {
       x: 50,
@@ -49,13 +78,40 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     }
   };
 
+  // --- ASSET LOADING ---
+  useEffect(() => {
+    const loadAllAssets = async () => {
+      const [
+        bgFar, bgMid, ground, player,
+        obsGS, obsGL, obsFS, obsFL
+      ] = await Promise.all([
+        loadImage(assetConfig.BACKGROUND.FAR.path),
+        loadImage(assetConfig.BACKGROUND.MID.path),
+        loadImage(assetConfig.GROUND.path),
+        loadImage(assetConfig.PLAYER.IMAGE_PATH),
+        loadImage(assetConfig.OBSTACLES.GROUND_SMALL.path),
+        loadImage(assetConfig.OBSTACLES.GROUND_LARGE.path),
+        loadImage(assetConfig.OBSTACLES.FLYING_SMALL.path),
+        loadImage(assetConfig.OBSTACLES.FLYING_LARGE.path),
+      ]);
+
+      assetsRef.current = {
+        bgFar, bgMid, ground, player,
+        obsGroundSmall: obsGS,
+        obsGroundLarge: obsGL,
+        obsFlySmall: obsFS,
+        obsFlyLarge: obsFL,
+        loaded: true
+      };
+    };
+
+    loadAllAssets();
+  }, []);
+
   // --- JUMP LOGIC (Variable Jump Height) ---
   
   // 1. Start Jump (Full power on press)
   const startJump = useCallback((e?: React.TouchEvent | React.MouseEvent) => {
-    // Prevent default to avoid double firing on some devices (though touch-action: none helps)
-    // e?.preventDefault(); 
-
     const state = gameState.current;
     if (!state.player.isJumping && state.isPlaying) {
       state.player.dy = config.jumpStrength; // Apply full jump force
@@ -65,12 +121,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
 
   // 2. End Jump (Cut velocity on release)
   const endJump = useCallback((e?: React.TouchEvent | React.MouseEvent) => {
-    // e?.preventDefault();
-    
     const state = gameState.current;
-    // If the player is currently moving UP (negative dy) and releases the button,
-    // we cut the upward velocity significantly. This creates the "short hop".
-    // We only cut if dy is significantly negative to avoid weird physics at the peak.
     if (state.player.isJumping && state.player.dy < -2) {
       state.player.dy = state.player.dy * 0.45; // Cut upward momentum to 45%
     }
@@ -90,6 +141,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     if (!ctx) return;
 
     const state = gameState.current;
+    const assets = assetsRef.current;
     const parent = canvas.parentElement;
     if(!parent) return;
     
@@ -111,7 +163,17 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         setCurrentScore(Math.floor(scoreRef.current));
       }
 
-      // 2. Player Physics
+      // 2. Background Parallax Scrolling
+      // Far background moves at 10% speed
+      state.bgFarOffset -= state.speed * 0.1;
+      // Mid background moves at 25% speed
+      state.bgMidOffset -= state.speed * 0.25;
+
+      const BG_WIDTH = 1000; // Loop width
+      if (state.bgFarOffset <= -BG_WIDTH) state.bgFarOffset += BG_WIDTH;
+      if (state.bgMidOffset <= -BG_WIDTH) state.bgMidOffset += BG_WIDTH;
+
+      // 3. Player Physics
       state.player.dy += config.gravity;
       state.player.y += state.player.dy;
 
@@ -122,7 +184,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         state.player.isJumping = false;
       }
 
-      // 3. Obstacles Spawning with High Randomness
+      // 4. Obstacles Spawning with High Randomness
       state.frameCount++;
       
       if (state.frameCount > state.nextSpawnThreshold) {
@@ -135,31 +197,23 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         let height = 30;
         let yPos = groundY;
 
-        // More variability in size
-        const sizeVariance = () => Math.floor(Math.random() * 20) - 5; // -5 to +15
-
         if (typeRand < 0.4) {
-          // 40% Ground Small (Variable width/height)
           type = 'GROUND_SMALL';
-          width = 25 + Math.random() * 15; // 25-40
-          height = 25 + Math.random() * 15; // 25-40
+          width = 25 + Math.random() * 15;
+          height = 25 + Math.random() * 15;
           yPos = groundY - height;
         } else if (typeRand < 0.7) {
-          // 30% Ground Large (Tall or Wide)
           type = 'GROUND_LARGE';
-          width = 30 + Math.random() * 20; // 30-50
-          height = 45 + Math.random() * 25; // 45-70
+          width = 30 + Math.random() * 20;
+          height = 45 + Math.random() * 25;
           yPos = groundY - height;
         } else if (typeRand < 0.9) {
-          // 20% Flying Small (Random Height)
           type = 'FLYING_SMALL';
           width = 25 + Math.random() * 10;
           height = 20 + Math.random() * 10;
-          // Height varies between just above head to jumpable
           const heightVariance = Math.random() * 40; 
           yPos = groundY - 45 - heightVariance; 
         } else {
-          // 10% Flying Large (High up)
           type = 'FLYING_LARGE';
           width = 40 + Math.random() * 20;
           height = 30 + Math.random() * 15;
@@ -176,31 +230,18 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           markedForDeletion: false
         });
 
-        // --- Calculate NEXT Spawn Threshold (The Core of Randomness) ---
-        // Basic physics: Jump takes approx 40-45 frames.
-        // We want a mix of "Tight Clusters" (immediate next jump) and "Long Gaps".
-        
-        const minSafetyFrames = 40; // Approx frames to land
-        
-        // Speed Adjustment: As speed increases, we cover more distance per frame, 
-        // so frames can stay roughly similar for rhythm, but we reduce max gaps to make it harder.
-        
-        const clusterChance = 0.35; // 35% chance of a quick follow-up
+        const minSafetyFrames = 40; 
+        const clusterChance = 0.35; 
         
         if (Math.random() < clusterChance) {
-          // CLUSTER MODE: Very tight gap (panic inducing)
-          // 45 to 65 frames
           state.nextSpawnThreshold = minSafetyFrames + 5 + Math.random() * 20;
         } else {
-          // RELAXED MODE: Wide variation
-          // 60 to 180 frames (large gap possible)
-          // As speed goes up, reduce the max wait time so it doesn't get boring
           const maxWait = Math.max(80, 200 - (state.speed * 5)); 
           state.nextSpawnThreshold = minSafetyFrames + 20 + Math.random() * (maxWait - 60);
         }
       }
 
-      // 4. Obstacles Movement & Collision
+      // 5. Obstacles Movement & Collision
       state.obstacles.forEach(obs => {
         obs.x -= state.speed;
         
@@ -208,7 +249,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           obs.markedForDeletion = true;
         }
 
-        // Collision Detection (AABB) with forgiving padding
         const pPadding = 10; 
         if (
           state.player.x < obs.x + obs.width - pPadding &&
@@ -225,7 +265,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     }
 
     // --- RENDER ---
-    const dpr = window.devicePixelRatio || 1;
     
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0); 
@@ -236,65 +275,111 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     ctx.scale(scale, scale);
 
     // 1. Draw Background
+    // Fallback Background Color
     ctx.fillStyle = '#fef3c7'; 
     ctx.fillRect(0, 0, logicalWidth, logicalHeight);
 
+    const BG_WIDTH = 1000;
+
+    // Draw Far Background (Looping)
+    if (assets.bgFar) {
+      // Draw 3 tiles to cover screen and scrolling
+      for (let i = -1; i < 3; i++) {
+        ctx.drawImage(assets.bgFar, state.bgFarOffset + (i * BG_WIDTH), 0, BG_WIDTH, logicalHeight);
+      }
+    } else {
+       // Fallback for Far BG (Simple Mountains)
+       ctx.fillStyle = '#fcd34d'; // darker yellow
+       ctx.beginPath();
+       ctx.moveTo(0, logicalHeight);
+       ctx.lineTo(logicalWidth * 0.3 + state.bgFarOffset, logicalHeight - 100);
+       ctx.lineTo(logicalWidth * 0.6 + state.bgFarOffset, logicalHeight);
+       ctx.fill();
+    }
+
+    // Draw Mid Background (Looping)
+    if (assets.bgMid) {
+      for (let i = -1; i < 3; i++) {
+        ctx.drawImage(assets.bgMid, state.bgMidOffset + (i * BG_WIDTH), 0, BG_WIDTH, logicalHeight);
+      }
+    } else {
+        // Fallback for Mid BG (Simple Hills)
+        ctx.fillStyle = '#fbbf24'; 
+        ctx.beginPath();
+        ctx.ellipse(state.bgMidOffset + 200, logicalHeight, 300, 100, 0, 0, Math.PI * 2);
+        ctx.ellipse(state.bgMidOffset + 800, logicalHeight, 400, 120, 0, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
     // 2. Draw Ground
-    ctx.fillStyle = '#d97706'; 
-    ctx.fillRect(0, groundY, logicalWidth, groundHeight);
+    if (assets.ground) {
+      // Tile the ground texture
+      const tileW = 100;
+      const numTiles = Math.ceil(logicalWidth / tileW) + 1;
+      const offsetX = -(state.frameCount * state.speed) % tileW;
+      for (let i = 0; i < numTiles; i++) {
+          ctx.drawImage(assets.ground, offsetX + (i * tileW), groundY, tileW, groundHeight);
+      }
+    } else {
+      ctx.fillStyle = '#d97706'; 
+      ctx.fillRect(0, groundY, logicalWidth, groundHeight);
+    }
 
     // 3. Draw Player
     state.player.x = 50; 
     
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(state.player.x, state.player.y, state.player.width, state.player.height);
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(state.player.x, state.player.y, state.player.width, state.player.height);
-    
-    ctx.fillStyle = '#333';
-    if (state.isPlaying) {
-        ctx.fillRect(state.player.x + 25, state.player.y + 10, 5, 5);
+    if (assets.player) {
+      ctx.drawImage(assets.player, state.player.x, state.player.y, state.player.width, state.player.height);
     } else {
-        ctx.beginPath();
-        ctx.moveTo(state.player.x + 24, state.player.y + 9);
-        ctx.lineTo(state.player.x + 29, state.player.y + 14);
-        ctx.moveTo(state.player.x + 29, state.player.y + 9);
-        ctx.lineTo(state.player.x + 24, state.player.y + 14);
-        ctx.stroke();
+      // Fallback Player
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(state.player.x, state.player.y, state.player.width, state.player.height);
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(state.player.x, state.player.y, state.player.width, state.player.height);
+      
+      // Eye
+      ctx.fillStyle = '#333';
+      if (state.isPlaying) {
+          ctx.fillRect(state.player.x + 25, state.player.y + 10, 5, 5);
+      } else {
+          // X Eye for dead
+          ctx.beginPath();
+          ctx.moveTo(state.player.x + 24, state.player.y + 9);
+          ctx.lineTo(state.player.x + 29, state.player.y + 14);
+          ctx.moveTo(state.player.x + 29, state.player.y + 9);
+          ctx.lineTo(state.player.x + 24, state.player.y + 14);
+          ctx.stroke();
+      }
     }
 
     // 4. Draw Obstacles
     state.obstacles.forEach(obs => {
-        if (obs.type === 'GROUND_SMALL') {
-            ctx.fillStyle = '#166534';
-            ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
-        } else if (obs.type === 'GROUND_LARGE') {
-            ctx.fillStyle = '#14532d';
-            ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
-            ctx.fillStyle = '#166534';
-            ctx.fillRect(obs.x + 5, obs.y + 5, obs.width - 10, obs.height - 10);
-        } else if (obs.type === 'FLYING_SMALL') {
-            ctx.fillStyle = '#2563eb';
-            ctx.beginPath();
-            ctx.moveTo(obs.x, obs.y);
-            ctx.lineTo(obs.x + obs.width, obs.y + obs.height / 2);
-            ctx.lineTo(obs.x, obs.y + obs.height);
-            ctx.fill();
-            ctx.fillStyle = '#60a5fa';
-            if (Math.floor(obs.x / 20) % 2 === 0) {
-                ctx.fillRect(obs.x + 5, obs.y - 10, 10, 10);
+        let img = null;
+        if (obs.type === 'GROUND_SMALL') img = assets.obsGroundSmall;
+        else if (obs.type === 'GROUND_LARGE') img = assets.obsGroundLarge;
+        else if (obs.type === 'FLYING_SMALL') img = assets.obsFlySmall;
+        else if (obs.type === 'FLYING_LARGE') img = assets.obsFlyLarge;
+
+        if (img) {
+            ctx.drawImage(img, obs.x, obs.y, obs.width, obs.height);
+        } else {
+            // Fallback Rendering
+            if (obs.type.includes('GROUND')) {
+                ctx.fillStyle = obs.type === 'GROUND_LARGE' ? '#14532d' : '#166534';
+                ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
             } else {
-                ctx.fillRect(obs.x + 5, obs.y + 5, 10, 10);
+                ctx.fillStyle = obs.type === 'FLYING_LARGE' ? '#7c3aed' : '#2563eb';
+                ctx.beginPath();
+                if (obs.type === 'FLYING_LARGE') {
+                    ctx.ellipse(obs.x + obs.width/2, obs.y + obs.height/2, obs.width/2, obs.height/2, 0, 0, Math.PI * 2);
+                } else {
+                    ctx.moveTo(obs.x, obs.y);
+                    ctx.lineTo(obs.x + obs.width, obs.y + obs.height / 2);
+                    ctx.lineTo(obs.x, obs.y + obs.height);
+                }
+                ctx.fill();
             }
-        } else if (obs.type === 'FLYING_LARGE') {
-            ctx.fillStyle = '#7c3aed';
-            ctx.beginPath();
-            ctx.ellipse(obs.x + obs.width/2, obs.y + obs.height/2, obs.width/2, obs.height/2, 0, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#fff';
-            ctx.fillRect(obs.x + 10, obs.y + 10, 5, 5);
-            ctx.fillRect(obs.x + 25, obs.y + 10, 5, 5);
         }
     });
 
