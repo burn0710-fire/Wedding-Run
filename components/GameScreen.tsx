@@ -35,25 +35,20 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     const parent = canvas.parentElement;
     if (!parent) return;
     
-    // Maintain aspect ratio or fill? Let's fill width, fixed aspect ratio of ~16:9 equivalent
-    // Ideally for a mobile game, full height is good, but we want a "lane" feel.
-    // Let's use the parent container size.
-    
-    const dpr = window.devicePixelRatio || 1;
+    // Use the parent dimensions properly
     const rect = parent.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
     
+    // Set actual canvas pixels
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
     
+    // Reset scale in context
     const ctx = canvas.getContext('2d');
-    if (ctx) ctx.scale(dpr, dpr);
-    
-    // Store logic dimensions (independent of pixels)
-    // We will treat the "game world" as having a fixed height of 300 units
-    // and dynamic width based on aspect ratio.
-    const scaleFactor = rect.height / 300; 
-    
-    return { width: rect.width, height: rect.height, scaleFactor, ctx };
+    if (ctx) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transform
+      ctx.scale(dpr, dpr);
+    }
   };
 
   const jump = useCallback(() => {
@@ -69,9 +64,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
-    // We need to re-get dimensions in case of resize, 
-    // but for performance in this loop we assume fixed setup from init
-    // Actually, just get context for drawing.
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -79,10 +71,17 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     const parent = canvas.parentElement;
     if(!parent) return;
     
-    // Logic Dimensions
-    const logicalHeight = 300;
-    const scale = parent.getBoundingClientRect().height / logicalHeight;
-    const logicalWidth = parent.getBoundingClientRect().width / scale;
+    // Recalculate Logic Dimensions every frame for responsiveness
+    // Logic height is fixed at 300 to maintain consistent gameplay physics regardless of screen size
+    const logicalHeight = 300; 
+    const rect = parent.getBoundingClientRect();
+    
+    // Scale factor to fit logical height into actual pixel height
+    // e.g. if screen height is 600px, scale is 2.
+    const scale = rect.height / logicalHeight;
+    
+    // Logical width depends on aspect ratio
+    const logicalWidth = rect.width / scale;
 
     // --- UPDATE LOGIC ---
     if (state.isPlaying) {
@@ -111,9 +110,8 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
 
       // 3. Obstacles Spawning
       state.frameCount++;
-      // Random spawn interval
       const nextSpawn = Math.random() * (config.spawnRateMax - config.spawnRateMin) + config.spawnRateMin;
-      // Adjust spawn rate based on speed (faster speed = spawn closer in time to keep distance same? No, purely time based is fine for simple game)
+      
       if (state.frameCount > nextSpawn) {
         state.frameCount = 0;
         state.obstacles.push({
@@ -135,7 +133,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         }
 
         // Collision Detection (AABB)
-        // Hitbox padding to be forgiving
         const pPadding = 5;
         if (
           state.player.x < obs.x + obs.width - pPadding &&
@@ -153,16 +150,19 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     }
 
     // --- RENDER ---
-    // Clear
     const dpr = window.devicePixelRatio || 1;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Save context state for scaling
+    // Clear whole canvas (use actual width/height)
     ctx.save();
-    ctx.scale(dpr * scale, dpr * scale);
+    ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset to pixels for clear
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+    
+    // Set scale for drawing logical coords
+    ctx.save();
+    ctx.scale(scale, scale);
 
     // 1. Draw Background (Sky)
-    // You can replace this with `ctx.drawImage(bgImage, 0, 0, ...)`
     ctx.fillStyle = '#fef3c7'; // warm yellow/orange bg
     ctx.fillRect(0, 0, logicalWidth, logicalHeight);
 
@@ -171,30 +171,22 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     ctx.fillRect(0, logicalHeight - 20, logicalWidth, 20);
 
     // 3. Draw Player
-    // Define player X position fixed
     state.player.x = 50; 
     
-    // --- ASSET REPLACEMENT: PLAYER ---
-    // Uncomment the lines below and load your image in useEffect to use a sprite
-    // ctx.drawImage(playerImg, state.player.x, state.player.y, state.player.width, state.player.height);
-    
-    // Placeholder Player (White Box with border)
+    // Placeholder Player
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(state.player.x, state.player.y, state.player.width, state.player.height);
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 2;
     ctx.strokeRect(state.player.x, state.player.y, state.player.width, state.player.height);
     
-    // Simple eye to show direction
+    // Simple eye
     ctx.fillStyle = '#333';
     ctx.fillRect(state.player.x + 25, state.player.y + 10, 5, 5);
 
     // 4. Draw Obstacles
     state.obstacles.forEach(obs => {
-        // --- ASSET REPLACEMENT: OBSTACLE ---
-        // ctx.drawImage(cactusImg, obs.x, obs.y, obs.width, obs.height);
-
-        // Placeholder Obstacle (Red Triangle-ish)
+        // Placeholder Obstacle
         ctx.fillStyle = '#ef4444';
         ctx.beginPath();
         ctx.moveTo(obs.x, obs.y + obs.height);
@@ -207,15 +199,28 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     ctx.restore();
 
     requestRef.current = requestAnimationFrame(update);
-  }, [onGameOver, currentScore]); // currentScore dependency is handled via ref, but listed to keep lint happy if needed, strictly not needed for logic
+  }, [onGameOver, currentScore]);
+
+  // Handle Resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (canvasRef.current) {
+        setupCanvas(canvasRef.current);
+      }
+    };
+    
+    window.addEventListener('resize', handleResize);
+    // Initial setup
+    if (canvasRef.current) setupCanvas(canvasRef.current);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
 
   // Init Loop
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (canvas) {
-      setupCanvas(canvas);
-      requestRef.current = requestAnimationFrame(update);
-    }
+    requestRef.current = requestAnimationFrame(update);
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
@@ -223,8 +228,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
 
   // Touch handlers
   const handleTouch = (e: React.TouchEvent | React.MouseEvent) => {
-    // Prevent default to stop scrolling or zooming double taps
-    // e.preventDefault(); // Sometimes interferes with React synthetic events, handled in CSS
+    // e.preventDefault();
     jump();
   };
 

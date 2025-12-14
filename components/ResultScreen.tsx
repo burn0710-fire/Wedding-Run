@@ -23,9 +23,6 @@ const ResultScreen: React.FC<ResultScreenProps> = ({ score, onRetry, onShowRanki
 
     if (success) {
       setHasSubmitted(true);
-      // Optional: Auto redirect to ranking after delay? 
-      // User requested "Game back" button, so we might just stay here or show a success message.
-      // Let's redirect to ranking to show their position.
       setTimeout(() => {
         onShowRanking();
       }, 1000);
@@ -45,17 +42,43 @@ const ResultScreen: React.FC<ResultScreenProps> = ({ score, onRetry, onShowRanki
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 overflow-hidden">
-      {/* Header Result */}
-      <div className="flex-none p-6 text-center bg-white shadow-sm z-10">
-        <h2 className="text-gray-500 text-sm font-bold uppercase tracking-wide">Game Over</h2>
-        <div className="text-5xl font-black text-orange-500 my-2">{score}</div>
-        <p className="text-xs text-gray-400">名前を選んでスコアを登録しよう</p>
+    <div className="flex h-full w-full bg-slate-50 overflow-hidden">
+      
+      {/* Left Side: Score & Actions */}
+      <div className="w-1/3 md:w-2/5 flex flex-col bg-white shadow-md z-10 border-r border-gray-200">
+        <div className="flex-1 flex flex-col items-center justify-center p-4 text-center">
+          <h2 className="text-gray-500 text-xs md:text-sm font-bold uppercase tracking-wide">Game Over</h2>
+          <div className="text-5xl md:text-6xl font-black text-orange-500 my-2">{score}</div>
+          <p className="text-xs text-gray-400 mb-4">
+            名前を選んで<br/>スコアを登録しよう
+          </p>
+
+          <button
+            onClick={handleSubmit}
+            disabled={!selectedName || isSubmitting}
+            className={`
+              w-full py-3 rounded-xl text-base md:text-lg font-bold shadow-lg mb-3 transition-all
+              ${selectedName 
+                ? 'bg-orange-500 text-white active:scale-95 shadow-orange-500/30' 
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'}
+            `}
+          >
+            {isSubmitting ? '送信中...' : 'ランキングに登録'}
+          </button>
+
+          <button
+            onClick={onRetry}
+            className="w-full py-2 md:py-3 rounded-xl text-gray-600 text-sm font-bold hover:bg-gray-100 transition-colors"
+          >
+            登録せずにもう一回
+          </button>
+        </div>
       </div>
 
-      {/* Scrollable Name List */}
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="grid grid-cols-2 gap-3 pb-20">
+      {/* Right Side: Name List */}
+      <div className="flex-1 overflow-y-auto p-4 bg-slate-50">
+        <h3 className="text-sm font-bold text-gray-500 mb-2 sticky top-0 bg-slate-50 pb-2">参加者リスト ({participants.names.length})</h3>
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 pb-20">
           {participants.names.map((name) => (
             <button
               key={name}
@@ -73,28 +96,6 @@ const ResultScreen: React.FC<ResultScreenProps> = ({ score, onRetry, onShowRanki
         </div>
       </div>
 
-      {/* Footer Actions */}
-      <div className="flex-none p-4 bg-white border-t border-gray-100 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-20">
-        <button
-          onClick={handleSubmit}
-          disabled={!selectedName || isSubmitting}
-          className={`
-            w-full py-4 rounded-xl text-lg font-bold shadow-lg mb-3 transition-all
-            ${selectedName 
-              ? 'bg-orange-500 text-white active:scale-95 shadow-orange-500/30' 
-              : 'bg-gray-200 text-gray-400 cursor-not-allowed'}
-          `}
-        >
-          {isSubmitting ? '送信中...' : 'ランキングに登録'}
-        </button>
-
-        <button
-          onClick={onRetry}
-          className="w-full py-3 rounded-xl text-gray-600 font-bold hover:bg-gray-100 transition-colors"
-        >
-          登録せずにもう一回
-        </button>
-      </div>
     </div>
   );
 };
