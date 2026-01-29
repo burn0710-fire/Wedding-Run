@@ -56,9 +56,9 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
     ground: 0,
   });
 
-  // --------------------------------------------------------
+  // --------------------------------
   // 初期化
-  // --------------------------------------------------------
+  // --------------------------------
   useEffect(() => {
     console.log("GameScreen mounted");
     console.log("spine.VERSION:", (spine as any).VERSION);
@@ -68,13 +68,14 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
       const canvas = canvasRef.current;
       if (!canvas) return;
 
+      // 内部バッファサイズ
       canvas.width = config.canvasWidth;
       canvas.height = config.canvasHeight;
 
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      // 画像のベースパス（/Wedding-Run/ を考慮）
+      // ベースパス（/Wedding-Run/ 対応）
       const base =
         (import.meta as any).env.BASE_URL ??
         (window.location.pathname.includes("/Wedding-Run/")
@@ -98,7 +99,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
           };
         });
 
-      // 背景画像読み込み
+      // 背景画像
       assetsRef.current.bgFar = await loadImg(`${imgBase}bg_far.png`);
       assetsRef.current.bgMid = await loadImg(`${imgBase}bg_mid.png`);
       assetsRef.current.ground = await loadImg(`${imgBase}ground.png`);
@@ -125,7 +126,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
             const skeletonData = skeletonJson.readSkeletonData(json);
 
             const skeleton = new spine.Skeleton(skeletonData);
-            // 画面に収まるようにスケールと初期位置を調整
+            // 見えるように縮小
             skeleton.scaleX = 0.4;
             skeleton.scaleY = 0.4;
             skeleton.x = config.canvasWidth * 0.25;
@@ -141,11 +142,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
             );
             renderer.premultipliedAlpha = true;
 
-            spineRef.current = {
-              skeleton,
-              state,
-              renderer,
-            };
+            spineRef.current = { skeleton, state, renderer };
           } catch (e) {
             console.warn("Spine init error:", e);
           }
@@ -168,9 +165,9 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
     };
   }, []);
 
-  // --------------------------------------------------------
+  // --------------------------------
   // メインループ
-  // --------------------------------------------------------
+  // --------------------------------
   const update = useCallback(
     (time: number) => {
       const dt = (time - lastTimeRef.current) / 1000;
@@ -183,7 +180,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         return;
       }
 
-      // スコア & スクロール
+      // スコアとスクロール
       scoreRef.current += dt * 10;
       setCurrentScore(Math.floor(scoreRef.current));
 
@@ -212,7 +209,6 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
       // 画面クリア
       ctx.clearRect(0, 0, config.canvasWidth, config.canvasHeight);
 
-      // 背景描画
       const drawLoop = (
         img: HTMLImageElement | null,
         x: number,
@@ -224,6 +220,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         ctx.drawImage(img, -x + config.canvasWidth, y, config.canvasWidth, h);
       };
 
+      // 背景・地面
       drawLoop(assetsRef.current.bgFar, scrollRef.current.bgFar, 0, canvas.height);
       drawLoop(
         assetsRef.current.bgMid,
@@ -238,14 +235,13 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         config.groundHeight
       );
 
-      // ★デバッグ用の赤い四角
+      // ★デバッグ用：赤い四角
       ctx.fillStyle = "red";
       ctx.fillRect(10, 10, 80, 80);
 
       // プレイヤー（Spine）
       if (spineRef.current) {
         const { skeleton, state, renderer } = spineRef.current;
-
         state.update(dt);
         state.apply(skeleton);
         skeleton.updateWorldTransform();
@@ -263,7 +259,6 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         renderer.draw(skeleton);
       }
 
-      // 次フレーム予約
       requestRef.current = requestAnimationFrame(update);
     },
     [isReady]
@@ -274,10 +269,10 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
     return () => cancelAnimationFrame(requestRef.current);
   }, [update]);
 
-  // --------------------------------------------------------
+  // --------------------------------
   // 入力（クリックでジャンプ）
-  // --------------------------------------------------------
-  const handleMouseDown = (e: MouseEvent<HTMLDivElement>) => {
+  // --------------------------------
+  const handleMouseDown = (_e: MouseEvent<HTMLDivElement>) => {
     const p = playerRef.current;
     if (p.jumpCount >= config.maxJumps) return;
 
@@ -291,19 +286,22 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
     }
   };
 
+  // --------------------------------
+  // 描画
+  // --------------------------------
   return (
-    <div className="w-full h-full flex items-center justify-center bg-slate-100">
-      <div className="relative" onMouseDown={handleMouseDown}>
-        <canvas
-          ref={canvasRef}
-          width={800}
-          height={450}
-          className="block"
-          style={{ border: "1px solid red" }}
-        />
-        <div className="absolute top-4 right-4 bg-white/80 p-2 rounded-lg font-bold text-orange-600 shadow">
-          SCORE: {currentScore.toString().padStart(5, "0")}
-        </div>
+    <div className="w-full h-full relative" onMouseDown={handleMouseDown}>
+      <canvas
+        ref={canvasRef}
+        style={{
+          width: `${config.canvasWidth}px`,
+          height: `${config.canvasHeight}px`,
+          border: "1px solid red",
+          display: "block",
+        }}
+      />
+      <div className="absolute top-4 right-4 bg-white/80 p-2 rounded-lg font-bold text-orange-600 shadow">
+        SCORE: {currentScore.toString().padStart(5, "0")}
       </div>
     </div>
   );
