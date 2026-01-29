@@ -36,7 +36,6 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({ onGameO
       canvas.width = config.canvasWidth;
       canvas.height = config.canvasHeight;
 
-      // 画像の読み込み（パスの頭に / をつけないのがコツです）
       const loadImg = (s: string) => new Promise<HTMLImageElement>((r) => {
         const i = new Image(); i.src = s; i.onload = () => r(i); i.onerror = () => r(null as any);
       });
@@ -45,37 +44,42 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({ onGameO
       assetsRef.current.bgMid = await loadImg("assets/images/bg_mid.png");
       assetsRef.current.ground = await loadImg("assets/images/ground.png");
 
-// Spine読み込み部分（check関数の中身）
-const check = () => {
-  if (assetManager.isLoadingComplete()) {
-    const atlas = assetManager.get("character.atlas");
-    const json = assetManager.get("character.json");
-    
-    const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
-    const skeletonJson = new spine.SkeletonJson(atlasLoader);
-    
-    // ★物理エラー(physics is undefined)を強制的に黙らせる魔法の2行
-    (skeletonJson as any).readPhysics = () => {}; 
-    (skeletonJson as any).readPhysicsConstraint = () => {}; 
+      const assetManager = new spine.AssetManager("assets/spine/player/");
+      assetManager.loadText("character.json");
+      assetManager.loadTextureAtlas("character.atlas");
 
-    try {
-      const skeletonData = skeletonJson.readSkeletonData(json);
-      const skeleton = new spine.Skeleton(skeletonData);
-      skeleton.scaleX = skeleton.scaleY = 0.25;
-      
-      const state = new spine.AnimationState(new spine.AnimationStateData(skeletonData));
-      state.setAnimation(0, "run", true);
-      
-      spineRef.current = { skeleton, state, renderer: new spine.SkeletonRenderer(canvas.getContext("2d")!) };
-    } catch (e) {
-      console.warn("Spineの初期化でエラーが出ましたが、背景表示を優先します:", e);
-    }
-    
-    setIsReady(true); // 何があっても描画を開始させる
-  } else {
-    setTimeout(check, 100);
-  }
-};
+      const check = () => {
+        if (assetManager.isLoadingComplete()) {
+          try {
+            const atlas = assetManager.get("character.atlas");
+            const json = assetManager.get("character.json");
+            const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
+            const skeletonJson = new spine.SkeletonJson(atlasLoader);
+            
+            // ★物理エラー(physics is undefined)を強制回避
+            (skeletonJson as any).readPhysics = () => {}; 
+            (skeletonJson as any).readPhysicsConstraint = () => {}; 
+
+            const skeletonData = skeletonJson.readSkeletonData(json);
+            const skeleton = new spine.Skeleton(skeletonData);
+            skeleton.scaleX = skeleton.scaleY = 0.25;
+            
+            const state = new spine.AnimationState(new spine.AnimationStateData(skeletonData));
+            state.setAnimation(0, "run", true);
+            
+            spineRef.current = { skeleton, state, renderer: new spine.SkeletonRenderer(canvas.getContext("2d")!) };
+          } catch (e) {
+            console.warn("Spineの初期化エラー:", e);
+          }
+          setIsReady(true);
+        } else {
+          setTimeout(check, 100);
+        }
+      };
+      check();
+    };
+    init();
+  }, []);
 
   const update = useCallback((time: number) => {
     const dt = (time - lastTimeRef.current) / 1000;
@@ -86,7 +90,6 @@ const check = () => {
       return;
     }
 
-    // 更新
     scoreRef.current += dt * 10;
     setCurrentScore(Math.floor(scoreRef.current));
     scrollRef.current.bgFar = (scrollRef.current.bgFar + config.initialSpeed * 0.2) % config.canvasWidth;
@@ -99,7 +102,6 @@ const check = () => {
     const gY = config.canvasHeight - config.groundHeight - config.playerHeight;
     if (p.y > gY) { p.y = gY; p.vy = 0; p.jumpCount = 0; }
 
-    // 描画
     ctx.clearRect(0, 0, config.canvasWidth, config.canvasHeight);
     const d = (img: any, x: number, y: number, h: number) => {
       if (img) {
@@ -111,13 +113,15 @@ const check = () => {
     d(assetsRef.current.bgMid, scrollRef.current.bgMid, 0, config.canvasHeight);
     d(assetsRef.current.ground, scrollRef.current.ground, config.canvasHeight - config.groundHeight, config.groundHeight);
 
-    const { skeleton, state, renderer } = spineRef.current;
-    state.update(dt);
-    state.apply(skeleton);
-    skeleton.updateWorldTransform();
-    skeleton.x = 80;
-    skeleton.y = p.y + config.playerHeight;
-    renderer.draw(skeleton);
+    if (spineRef.current) {
+      const { skeleton, state, renderer } = spineRef.current;
+      state.update(dt);
+      state.apply(skeleton);
+      skeleton.updateWorldTransform();
+      skeleton.x = 80;
+      skeleton.y = p.y + config.playerHeight;
+      renderer.draw(skeleton);
+    }
 
     requestRef.current = requestAnimationFrame(update);
   }, [isReady]);
@@ -132,8 +136,10 @@ const check = () => {
       if (playerRef.current.jumpCount < config.maxJumps) {
         playerRef.current.vy = config.jumpStrength;
         playerRef.current.jumpCount++;
-        spineRef.current.state.setAnimation(0, "jump", false);
-        spineRef.current.state.addAnimation(0, "run", true, 0);
+        if (spineRef.current) {
+          spineRef.current.state.setAnimation(0, "jump", false);
+          spineRef.current.state.addAnimation(0, "run", true, 0);
+        }
       }
     }}>
       <canvas ref={canvasRef} className="w-full h-full" />
