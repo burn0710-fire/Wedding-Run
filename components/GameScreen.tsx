@@ -47,13 +47,13 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({ onGameO
         const i = new Image(); i.src = s; i.onload = () => r(i); i.onerror = () => r(null as any);
       });
 
-      assetsRef.current.bgFar = await loadImg("assets/images/bg_far.png");
-      assetsRef.current.bgMid = await loadImg("assets/images/bg_mid.png");
-      assetsRef.current.ground = await loadImg("assets/images/ground.png");
+      assetsRef.current.bgFar = await loadImg("/assets/images/bg_far.png");
+      assetsRef.current.bgMid = await loadImg("/assets/images/bg_mid.png");
+      assetsRef.current.ground = await loadImg("/assets/images/ground.png");
 
 // Spine のアセットローダーを作成
 const assetManager = new (spine as any).AssetManager(
-  "assets/spine/player/",
+  "/assets/spine/player/",
   new (spine as any).Downloader()
 );
 
