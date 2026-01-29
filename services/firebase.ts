@@ -18,12 +18,12 @@ import { ScoreEntry } from '../types';
 // 3. Add a Web App
 // 4. Copy the config object below
 const firebaseConfig = {
-  apiKey: "AIzaSyDummyKey-ReplaceThis",
-  authDomain: "your-project.firebaseapp.com",
-  projectId: "your-project-id",
-  storageBucket: "your-project.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abc12345"
+  apiKey: "AIzaSyAvK7BU7Cy25Ja9mFJYUWKpiErhQurvgtg",
+  authDomain: "wedding-run-ranking.firebaseapp.com",
+  projectId: "wedding-run-ranking",
+  storageBucket: "wedding-run-ranking.firebasestorage.app",
+  messagingSenderId: "830987996280",
+  appId: "1:830987996280:web:35158a8c225a5050fe718d"
 };
 
 // Initialize only if not already initialized (prevent hot-reload errors)
