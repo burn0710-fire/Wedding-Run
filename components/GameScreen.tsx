@@ -5,7 +5,6 @@ import React, {
   useCallback,
 } from "react";
 
-// ★ config を使わないで、全部ここで定義する
 enum PlayerState {
   RUNNING = "RUNNING",
   JUMPING = "JUMPING",
@@ -23,17 +22,27 @@ type Enemy = {
 const CANVAS_W = 800;
 const CANVAS_H = 450;
 
+// ===== Dino Run っぽいシンプル物理パラメータ =====
 const GROUND_HEIGHT = 80;
 const PLAYER_WIDTH = 50;
 const PLAYER_HEIGHT = 80;
 
 const ENEMY_WIDTH = 40;
-const ENEMY_HEIGHT = 40;
-const ENEMY_BASE_SPEED = 220;
+const ENEMY_HEIGHT = 60;
 
-const GRAVITY = 1800;       // 下向き加速度
-const JUMP_STRENGTH = -700; // ジャンプ初速
-const MAX_JUMPS = 2;
+// 重力とジャンプ。2段ジャンプをやめるので
+// 以前と同じくらいで、画面外に飛び出さないはず
+const GRAVITY = 1800;
+const JUMP_STRENGTH = -700;
+
+// ★ 一段ジャンプだけにする
+const MAX_JUMPS = 1;
+
+// 敵は常に一定スピード
+const ENEMY_SPEED = 260;
+
+// 敵の出現間隔（ピクセル）
+const ENEMY_SPACING = 280;
 
 const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   onGameOver,
@@ -55,9 +64,15 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   const enemiesRef = useRef<Enemy[]>([]);
   const isGameOverRef = useRef(false);
 
+  // 右端に一番近い敵の x を返す
+  const getRightmostEnemyX = () => {
+    if (enemiesRef.current.length === 0) return CANVAS_W;
+    return Math.max(...enemiesRef.current.map((e) => e.x));
+  };
+
   // 初期化
   useEffect(() => {
-    console.log("Minimal GameScreen (no config) mounted");
+    console.log("Minimal Dino-like GameScreen mounted (no config)");
 
     const canvas = canvasRef.current;
     if (canvas) {
@@ -66,20 +81,29 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
     }
 
     const enemyGroundY = CANVAS_H - GROUND_HEIGHT - ENEMY_HEIGHT;
+
+    // ★ 等間隔で3体並べておく
     enemiesRef.current = [
       {
-        x: CANVAS_W + 100,
+        x: CANVAS_W + 200,
         y: enemyGroundY,
         width: ENEMY_WIDTH,
         height: ENEMY_HEIGHT,
-        speed: ENEMY_BASE_SPEED,
+        speed: ENEMY_SPEED,
       },
       {
-        x: CANVAS_W + 400,
+        x: CANVAS_W + 200 + ENEMY_SPACING,
         y: enemyGroundY,
         width: ENEMY_WIDTH,
         height: ENEMY_HEIGHT,
-        speed: ENEMY_BASE_SPEED * 1.15,
+        speed: ENEMY_SPEED,
+      },
+      {
+        x: CANVAS_W + 200 + ENEMY_SPACING * 2,
+        y: enemyGroundY,
+        width: ENEMY_WIDTH,
+        height: ENEMY_HEIGHT,
+        speed: ENEMY_SPEED,
       },
     ];
 
@@ -112,7 +136,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         setCurrentScore(Math.floor(scoreRef.current));
       }
 
-      // プレイヤー物理
+      // ===== プレイヤー物理 =====
       const p = playerRef.current;
       p.vy += GRAVITY * dt;
       p.y += p.vy;
@@ -121,18 +145,23 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
       if (p.y > groundY) {
         p.y = groundY;
         p.vy = 0;
-        p.jumpCount = 0;
+        p.jumpCount = 0; // 地面に着地したらジャンプ回数リセット
       }
 
-      // 敵移動
+      // ===== 敵移動 =====
       enemiesRef.current.forEach((e) => {
         e.x -= e.speed * dt;
+      });
+
+      // 画面外に出た敵を、右端 + ENEMY_SPACING の位置に再配置
+      const rightmostX = getRightmostEnemyX();
+      enemiesRef.current.forEach((e) => {
         if (e.x + e.width < 0) {
-          e.x = CANVAS_W + 200 + Math.random() * 300;
+          e.x = rightmostX + ENEMY_SPACING;
         }
       });
 
-      // 当たり判定
+      // ===== 当たり判定 =====
       if (!isGameOverRef.current) {
         const playerHitBox = {
           x: playerX,
@@ -149,7 +178,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
             playerHitBox.y + playerHitBox.h > e.y;
 
           if (hit) {
-            console.log("HIT (minimal no-config)!");
+            console.log("HIT (dino-like)!");
             isGameOverRef.current = true;
             cancelAnimationFrame(requestRef.current);
             onGameOver(Math.floor(scoreRef.current));
@@ -195,6 +224,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   const handleMouseDown = () => {
     if (isGameOverRef.current) return;
 
+    // ★ 単純に「地面からの一段ジャンプ」だけ
     if (playerRef.current.jumpCount < MAX_JUMPS) {
       playerRef.current.vy = JUMP_STRENGTH;
       playerRef.current.jumpCount++;
