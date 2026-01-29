@@ -1,70 +1,95 @@
-// アセットのパスと設定を一元管理
-// 画像ファイルを差し替える場合は、このファイルのパスまたはフォルダ内のファイルを変更してください。
+// config/assets.ts
 
-export const ASSETS = {
-  // 背景画像の設定
+// 画像のベースパス（GitHub Pages で /Wedding-Run/ 配下に出す前提）
+const IMAGE_BASE = "/Wedding-Run/assets/images";
+
+const assetConfig = {
   BACKGROUND: {
-    // 遠景（山など）: ゆっくり動く
     FAR: {
-      path: '/assets/images/bg_far.png',
-      width: 1000, // 画像の元の幅
-      height: 300, // 画像の元の高さ
+      path: `${IMAGE_BASE}/bg_far.png`,
+      width: 800,
+      height: 533,
     },
-    // 中景（木々など）: 普通に動く
     MID: {
-      path: '/assets/images/bg_mid.png',
-      width: 1000,
-      height: 300,
-    }
+      path: `${IMAGE_BASE}/bg_mid.png`,
+      width: 800,
+      height: 533,
+    },
   },
 
-  // 地面の画像
   GROUND: {
-    path: '/assets/images/ground.png',
+    path: `${IMAGE_BASE}/ground.png`,
+    width: 744,
+    height: 144,
   },
 
-  // プレイヤーの設定
-  PLAYER: {
-    // 簡易的なPNG差し替え用（Spine導入までのつなぎ、または静止画用）
-    IMAGE_PATH: '/assets/images/player.png',
-    
-    // Spineデータ（将来的な実装用、またはライブラリ導入時に使用）
-    // 配置場所: public/assets/spine/player/
-    SPINE: {
-      ATLAS: '/assets/spine/player/character.atlas',
-      JSON: '/assets/spine/player/character.json',
-      PNG: '/assets/spine/player/character.png',
-      // アニメーション名の定義（Spineデータのアニメーション名と合わせる）
-      ANIMATIONS: {
-        RUN: 'run',
-        JUMP: 'jump',
-        IDLE: 'idle',
-        DIE: 'die'
-      },
-      SCALE: 0.5, // Spine描画時のスケール調整
-    }
-  },
-
-  // 障害物の画像設定
-  // 画像がない場合は、自動的にデフォルトの矩形描画になります
   OBSTACLES: {
+    // 地上の小さい障害物
     GROUND_SMALL: {
-      path: '/assets/images/obs_ground_small.png',
-      scale: 1.0, 
+      path: `${IMAGE_BASE}/obstacle_s.png`,
+      width: 113,
+      height: 144,
     },
+    // 地上の大きい障害物
     GROUND_LARGE: {
-      path: '/assets/images/obs_ground_large.png',
-      scale: 1.0,
+      path: `${IMAGE_BASE}/obstacle_l.png`,
+      width: 118,
+      height: 279,
     },
+    // 空中の小さい障害物
     FLYING_SMALL: {
-      path: '/assets/images/obs_fly_small.png',
-      scale: 1.0,
+      path: `${IMAGE_BASE}/obstacle_fly_s.png`,
+      width: 343,
+      height: 203,
     },
+    // 空中の大きい障害物
     FLYING_LARGE: {
-      path: '/assets/images/obs_fly_large.png',
-      scale: 1.0,
-    }
-  }
-};
+      path: `${IMAGE_BASE}/obstacle_fly_l.png`,
+      width: 343,
+      height: 203,
+    },
+  },
 
-export default ASSETS;
+  PLAYER: {
+    // いまは使わないけど、古いコードが参照しても落ちないようにダミー定義だけ残しておく
+    SPINE: {
+      BASE: "/Wedding-Run/assets/spine/player/",
+      JSON: "player.json",
+      ATLAS: "player.atlas",
+      SCALE: 0.4,
+      ANIMATIONS: {
+        RUN: "run",
+        JUMP: "jump",
+        DIE: "die",
+      },
+    },
+
+    // ★ここが今回追加したスプライトアニメ用設定
+    SPRITES: {
+      RUN_1: {
+        path: `${IMAGE_BASE}/chara_1.png`,
+        width: 647,
+        height: 453,
+      },
+      RUN_2: {
+        path: `${IMAGE_BASE}/chara_2.png`,
+        width: 647,
+        height: 453,
+      },
+      // JUMP は chara_1 をそのまま使う想定
+      JUMP: {
+        path: `${IMAGE_BASE}/chara_1.png`,
+        width: 647,
+        height: 453,
+      },
+      // DIE だけ chara_3
+      DIE: {
+        path: `${IMAGE_BASE}/chara_3.png`,
+        width: 647,
+        height: 453,
+      },
+    },
+  },
+} as const;
+
+export default assetConfig;
