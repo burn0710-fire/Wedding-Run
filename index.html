@@ -28,6 +28,19 @@
 </head>
   <body class="bg-slate-100 text-slate-800 h-screen w-screen overflow-hidden">
     <div id="root" class="h-full w-full"></div>
+
+    <!-- ★ spine が読む physics のダミーを先に定義しておく -->
+    <script>
+      // すでにあれば上書きしない
+      window.physics = window.physics || {
+        update: function () {},          // 必須ではないけど念のため
+        readPhysics: function () {},
+        readPhysicsConstraint: function () {}
+      };
+    </script>
+
+    <!-- これより後で spine-canvas や GameScreen が読み込まれる -->
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>
+
