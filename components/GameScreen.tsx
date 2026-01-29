@@ -5,9 +5,7 @@ import React, {
   useCallback,
 } from "react";
 
-import gameConfigData from "../config/game";
-const config = gameConfigData;
-
+// ★ config を使わないで、全部ここで定義する
 enum PlayerState {
   RUNNING = "RUNNING",
   JUMPING = "JUMPING",
@@ -24,10 +22,18 @@ type Enemy = {
 
 const CANVAS_W = 800;
 const CANVAS_H = 450;
+
+const GROUND_HEIGHT = 80;
 const PLAYER_WIDTH = 50;
+const PLAYER_HEIGHT = 80;
+
 const ENEMY_WIDTH = 40;
 const ENEMY_HEIGHT = 40;
 const ENEMY_BASE_SPEED = 220;
+
+const GRAVITY = 1800;       // 下向き加速度
+const JUMP_STRENGTH = -700; // ジャンプ初速
+const MAX_JUMPS = 2;
 
 const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   onGameOver,
@@ -40,7 +46,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   const scoreRef = useRef<number>(0);
 
   const playerRef = useRef({
-    y: CANVAS_H - config.groundHeight - config.playerHeight,
+    y: CANVAS_H - GROUND_HEIGHT - PLAYER_HEIGHT,
     vy: 0,
     state: PlayerState.RUNNING,
     jumpCount: 0,
@@ -51,8 +57,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
 
   // 初期化
   useEffect(() => {
-    console.log("Minimal GameScreen mounted");
-    console.log("config:", config);
+    console.log("Minimal GameScreen (no config) mounted");
 
     const canvas = canvasRef.current;
     if (canvas) {
@@ -60,8 +65,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
       canvas.height = CANVAS_H;
     }
 
-    // 敵の初期配置
-    const enemyGroundY = CANVAS_H - config.groundHeight - ENEMY_HEIGHT;
+    const enemyGroundY = CANVAS_H - GROUND_HEIGHT - ENEMY_HEIGHT;
     enemiesRef.current = [
       {
         x: CANVAS_W + 100,
@@ -108,12 +112,12 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         setCurrentScore(Math.floor(scoreRef.current));
       }
 
-      // プレイヤー物理（重力は dt 付き）
+      // プレイヤー物理
       const p = playerRef.current;
-      p.vy += config.gravity * dt;
+      p.vy += GRAVITY * dt;
       p.y += p.vy;
 
-      const groundY = CANVAS_H - config.groundHeight - config.playerHeight;
+      const groundY = CANVAS_H - GROUND_HEIGHT - PLAYER_HEIGHT;
       if (p.y > groundY) {
         p.y = groundY;
         p.vy = 0;
@@ -134,7 +138,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
           x: playerX,
           y: p.y,
           w: PLAYER_WIDTH,
-          h: config.playerHeight,
+          h: PLAYER_HEIGHT,
         };
 
         for (const e of enemiesRef.current) {
@@ -145,7 +149,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
             playerHitBox.y + playerHitBox.h > e.y;
 
           if (hit) {
-            console.log("HIT (minimal)!");
+            console.log("HIT (minimal no-config)!");
             isGameOverRef.current = true;
             cancelAnimationFrame(requestRef.current);
             onGameOver(Math.floor(scoreRef.current));
@@ -154,8 +158,8 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         }
       }
 
-      // ===== 描画ここから =====
-      // 背景（空色で全面塗りつぶし）
+      // ===== 描画 =====
+      // 背景
       ctx.fillStyle = "#8fd3ff";
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
@@ -163,21 +167,20 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
       ctx.fillStyle = "#4caf50";
       ctx.fillRect(
         0,
-        CANVAS_H - config.groundHeight,
+        CANVAS_H - GROUND_HEIGHT,
         CANVAS_W,
-        config.groundHeight
+        GROUND_HEIGHT
       );
 
-      // プレイヤー（赤四角）
+      // プレイヤー
       ctx.fillStyle = "red";
-      ctx.fillRect(playerX, p.y, PLAYER_WIDTH, config.playerHeight);
+      ctx.fillRect(playerX, p.y, PLAYER_WIDTH, PLAYER_HEIGHT);
 
-      // 敵（青四角）
+      // 敵
       ctx.fillStyle = "blue";
       enemiesRef.current.forEach((e) => {
         ctx.fillRect(e.x, e.y, e.width, e.height);
       });
-      // ===== 描画ここまで =====
 
       requestRef.current = requestAnimationFrame(update);
     },
@@ -192,8 +195,8 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   const handleMouseDown = () => {
     if (isGameOverRef.current) return;
 
-    if (playerRef.current.jumpCount < config.maxJumps) {
-      playerRef.current.vy = config.jumpStrength;
+    if (playerRef.current.jumpCount < MAX_JUMPS) {
+      playerRef.current.vy = JUMP_STRENGTH;
       playerRef.current.jumpCount++;
     }
   };
