@@ -69,11 +69,11 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
 
       canvas.width = config.canvasWidth;
       canvas.height = config.canvasHeight;
+      console.log("canvas size:", canvas.width, canvas.height);
 
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      // base URL を決める（/Wedding-Run/対応）
       const base =
         (import.meta as any).env.BASE_URL ??
         (window.location.pathname.includes("/Wedding-Run/")
@@ -102,6 +102,9 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
       assetsRef.current.bgMid = await loadImg(`${imgBase}bg_mid.png`);
       assetsRef.current.ground = await loadImg(`${imgBase}ground.png`);
 
+      // ここまで来たら背景だけでも描けるので isReady = true にする
+      setIsReady(true);
+
       // Spine アセットロード
       const AssetManager = (spine as any).AssetManager;
       const Downloader = (spine as any).Downloader;
@@ -124,8 +127,6 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
             const skeletonData = skeletonJson.readSkeletonData(json);
 
             const skeleton = new spine.Skeleton(skeletonData);
-
-            // 少し小さくして左寄りに表示
             skeleton.scaleX = 0.35;
             skeleton.scaleY = 0.35;
             skeleton.x = config.canvasWidth * 0.25;
@@ -143,8 +144,6 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
           } catch (e) {
             console.warn("Spine init error:", e);
           }
-
-          setIsReady(true);
         } else {
           setTimeout(check, 100);
         }
@@ -170,7 +169,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
 
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
-      if (!canvas || !ctx || !isReady) {
+      if (!canvas || !ctx) {
         requestRef.current = requestAnimationFrame(update);
         return;
       }
@@ -215,7 +214,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         ctx.drawImage(img, -x + config.canvasWidth, y, config.canvasWidth, h);
       };
 
-      // 背景 & 地面
+      // 背景 & 地面（isReady が false でも描く）
       drawLoop(
         assetsRef.current.bgFar,
         scrollRef.current.bgFar,
@@ -239,8 +238,8 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
       ctx.fillStyle = "red";
       ctx.fillRect(10, 10, 40, 40);
 
-      // プレイヤー（Spine）
-      if (spineRef.current) {
+      // Spine は isReady / spineRef が揃っているときだけ描画
+      if (isReady && spineRef.current) {
         const { skeleton, state, renderer } = spineRef.current;
         state.update(dt);
         state.apply(skeleton);
@@ -262,7 +261,6 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
     return () => cancelAnimationFrame(requestRef.current);
   }, [update]);
 
-  // クリックでジャンプ
   const handleMouseDown = (_e: MouseEvent<HTMLDivElement>) => {
     const p = playerRef.current;
     if (p.jumpCount >= config.maxJumps) return;
@@ -278,7 +276,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   };
 
   // -----------------------------
-  // 描画（固定サイズのゲーム画面）
+  // 固定サイズのゲーム画面（赤い太枠付き）
   // -----------------------------
   return (
     <div
@@ -287,7 +285,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         width: `${config.canvasWidth}px`,
         height: `${config.canvasHeight}px`,
         margin: "40px auto",
-        border: "1px solid #cccccc",
+        border: "4px solid red",
         backgroundColor: "#ffffff",
       }}
       onMouseDown={handleMouseDown}
