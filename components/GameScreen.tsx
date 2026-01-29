@@ -262,25 +262,28 @@ useEffect(() => {
 
 // ---------------- 入力・描画 ----------------
 return (
- <div
-   className="w-full h-full relative"
-   onMouseDown={() => {
-     if (playerRef.current.jumpCount < config.maxJumps) {
-       playerRef.current.vy = config.jumpStrength;
-       playerRef.current.jumpCount++;
-       if (spineRef.current) {
-         spineRef.current.state.setAnimation(0, "jump", false);
-         spineRef.current.state.addAnimation(0, "run", true, 0);
-       }
-     }
-   }}
- >
-   <canvas ref={canvasRef} className="w-full h-full" />
-   <div className="absolute top-4 right-4 bg-white/80 p-2 rounded-lg font-bold text-orange-600">
-     SCORE: {currentScore.toString().padStart(5, "0")}
-   </div>
- </div>
+  <div
+    className="w-full h-full flex items-center justify-center"
+  >
+    {/* キャンバス用の枠を、物理サイズと同じに固定 */}
+    <div
+      className="relative"
+      style={{ width: config.canvasWidth, height: config.canvasHeight }}
+    >
+      <canvas
+        ref={canvasRef}
+        // 描画バッファのサイズも明示しておく
+        width={config.canvasWidth}
+        height={config.canvasHeight}
+        className="block bg-white"
+      />
+
+      {/* スコア表示 */}
+      <div className="absolute top-4 right-4 bg-white/80 p-2 rounded-lg font-bold text-orange-600 shadow">
+        SCORE: {currentScore.toString().padStart(5, '0')}
+      </div>
+    </div>
+  </div>
 );
-};
 
 export default GameScreen;
