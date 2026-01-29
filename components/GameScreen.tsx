@@ -58,13 +58,13 @@ const loadImg = (src: string) =>
   });
 
 
-      assetsRef.current.bgFar = await loadImg("/assets/images/bg_far.png");
-      assetsRef.current.bgMid = await loadImg("/assets/images/bg_mid.png");
-      assetsRef.current.ground = await loadImg("/assets/images/ground.png");
+      assetsRef.current.bgFar = await loadImg("${base}assets/images/bg_far.png");
+      assetsRef.current.bgMid = await loadImg("${base}assets/images/bg_mid.png");
+      assetsRef.current.ground = await loadImg("${base}assets/images/ground.png");
 
 // Spine のアセットローダーを作成
 const assetManager = new (spine as any).AssetManager(
-  "/assets/spine/player/",
+  "${base}assets/spine/player/",
   new (spine as any).Downloader()
 );
 
@@ -74,8 +74,11 @@ assetManager.loadTextureAtlas("char_v2.atlas");
 
 
       const check = () => {
-        if (assetManager.isLoadingComplete()) {
-          try {
+if (assetManager.isLoadingComplete()) {
+  console.log("Spine assets loaded:", assetManager.get("char_v2.atlas"), assetManager.get("char_v2.json"));
+  try {
+    // ここから skeleton 関連 …
+
 const atlas = assetManager.get("char_v2.atlas");
 const json = assetManager.get("char_v2.json");
 const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
