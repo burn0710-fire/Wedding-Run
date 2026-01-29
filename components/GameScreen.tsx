@@ -2,9 +2,16 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as spine from "@esotericsoftware/spine-canvas";
 import gameConfigData from '../config/game';
 import assetConfig from '../config/assets';
-import { GameConfig, PlayerState, Obstacle, ObstacleType } from '../types';
+import { GameConfig, Obstacle, ObstacleType } from '../types';
 
 const config: GameConfig = gameConfigData;
+
+// エラーの原因になっていた PlayerState をここで定義
+enum PlayerState {
+  RUNNING = 'RUNNING',
+  JUMPING = 'JUMPING',
+  CRASHED = 'CRASHED'
+}
 
 interface GameScreenProps {
   onGameOver: (score: number) => void;
@@ -64,27 +71,17 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
   const loadSpineAssets = async (canvas: HTMLCanvasElement) => {
     const baseUrl = "assets/spine/player/";
     const assetManager = new spine.AssetManager(baseUrl);
-
-    // 読み込み開始
     assetManager.loadText("character.json");
     assetManager.loadTextureAtlas("character.atlas");
-
-    // 完了まで待機
     await assetManager.waitForAssets();
 
-    // 読み込めたかチェック
     const atlas = assetManager.get("character.atlas");
     const json = assetManager.get("character.json");
-
-    if (!atlas || !json) {
-      console.error("Spine assets could not be loaded. Check file names and paths.");
-      return;
-    }
+    if (!atlas || !json) return;
 
     const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
     const skeletonJson = new spine.SkeletonJson(atlasLoader);
     const skeletonData = skeletonJson.readSkeletonData(json);
-    
     const skeleton = new spine.Skeleton(skeletonData);
     const stateData = new spine.AnimationStateData(skeletonData);
     const state = new spine.AnimationState(stateData);
@@ -92,7 +89,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
 
     skeleton.setScale(0.25, 0.25); 
     state.setAnimation(0, "run", true);
-
     spineRef.current = { skeleton, state, renderer };
   };
 
@@ -104,7 +100,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
   const initGame = useCallback(async () => {
     if (!canvasRef.current) return;
     setupCanvas(canvasRef.current);
-
     await loadSpineAssets(canvasRef.current);
 
     const [bgFar, bgMid, ground, oGS, oGL, oFS, oFL] = await Promise.all([
@@ -117,54 +112,37 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
       loadImage(assetConfig.images.obsFlyLarge),
     ]);
 
-    assetsRef.current = {
-      bgFar, bgMid, ground,
-      obsGroundSmall: oGS, obsGroundLarge: oGL,
-      obsFlySmall: oFS, obsFlyLarge: oFL,
-    };
+    assetsRef.current = { bgFar, bgMid, ground, obsGroundSmall: oGS, obsGroundLarge: oGL, obsFlySmall: oFS, obsFlyLarge: oFL };
   }, []);
 
-  useEffect(() => {
-    initGame();
-  }, [initGame]);
+  useEffect(() => { initGame(); }, [initGame]);
 
   const spawnObstacle = useCallback(() => {
     const types: ObstacleType[] = ['GROUND_SMALL', 'GROUND_LARGE', 'FLY_SMALL', 'FLY_LARGE'];
     const type = types[Math.floor(Math.random() * types.length)];
-    
     let y = config.canvasHeight - config.groundHeight - 50;
-    if (type === 'FLY_SMALL' || type === 'FLY_LARGE') {
-      y -= 80 + Math.random() * 100;
-    }
+    if (type === 'FLY_SMALL' || type === 'FLY_LARGE') y -= 80 + Math.random() * 100;
 
-    const obstacle: Obstacle = {
+    obstaclesRef.current.push({
       id: Math.random(),
       x: config.canvasWidth,
       y,
       width: type.includes('LARGE') ? 80 : 50,
       height: type.includes('LARGE') ? 80 : 50,
       type,
-    };
-    obstaclesRef.current.push(obstacle);
+    });
   }, []);
 
   const update = useCallback((time: number) => {
     const dt = (time - lastTimeRef.current) / 1000;
     lastTimeRef.current = time;
-
     const ctx = canvasRef.current?.getContext('2d');
-    if (!ctx || !canvasRef.current) {
-      requestRef.current = requestAnimationFrame(update);
-      return;
-    }
+    if (!ctx || !canvasRef.current) return;
 
-    const isCrashed = playerRef.current.state === PlayerState.CRASHED;
-
-    if (!isCrashed) {
+    if (playerRef.current.state !== PlayerState.CRASHED) {
       scoreRef.current += dt * 10;
       setCurrentScore(Math.floor(scoreRef.current));
       scrollRef.current.speed = config.initialSpeed + (scoreRef.current / 100);
-
       scrollRef.current.bgFar = (scrollRef.current.bgFar + scrollRef.current.speed * 0.2) % config.canvasWidth;
       scrollRef.current.bgMid = (scrollRef.current.bgMid + scrollRef.current.speed * 0.5) % config.canvasWidth;
       scrollRef.current.ground = (scrollRef.current.ground + scrollRef.current.speed) % config.canvasWidth;
@@ -190,12 +168,9 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         obs.x -= scrollRef.current.speed;
         const hitX = player.y < obs.y + obs.height && player.y + config.playerHeight > obs.y;
         const hitY = 50 < obs.x + obs.width && 50 + config.playerWidth > obs.x;
-
         if (hitX && hitY) {
           player.state = PlayerState.CRASHED;
-          try {
-            spineRef.current?.state.setAnimation(0, "die", false);
-          } catch(e) {}
+          try { spineRef.current?.state.setAnimation(0, "die", false); } catch(e) {}
           onGameOver(Math.floor(scoreRef.current));
           return false;
         }
@@ -204,13 +179,11 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     }
 
     ctx.clearRect(0, 0, config.canvasWidth, config.canvasHeight);
-
     const drawParallax = (img: HTMLImageElement | null, x: number, y: number, h: number) => {
       if (!img) return;
       ctx.drawImage(img, -x, y, config.canvasWidth, h);
       ctx.drawImage(img, -x + config.canvasWidth, y, config.canvasWidth, h);
     };
-
     drawParallax(assetsRef.current.bgFar, scrollRef.current.bgFar, 0, config.canvasHeight);
     drawParallax(assetsRef.current.bgMid, scrollRef.current.bgMid, 0, config.canvasHeight);
     drawParallax(assetsRef.current.ground, scrollRef.current.ground, config.canvasHeight - config.groundHeight, config.groundHeight);
@@ -228,13 +201,10 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
       state.update(dt);
       state.apply(skeleton);
       skeleton.updateWorldTransform();
-      
       skeleton.x = 50 + config.playerWidth / 2;
       skeleton.y = playerRef.current.y + config.playerHeight;
-      
       renderer.draw(skeleton);
     }
-
     requestRef.current = requestAnimationFrame(update);
   }, [onGameOver, spawnObstacle]);
 
@@ -258,11 +228,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
   }, [update]);
 
   return (
-    <div 
-      className="relative w-full h-full bg-slate-200 overflow-hidden select-none"
-      onMouseDown={startJump}
-      onTouchStart={startJump}
-    >
+    <div className="relative w-full h-full bg-slate-200 overflow-hidden select-none" onMouseDown={startJump} onTouchStart={startJump}>
       <canvas ref={canvasRef} className="block w-full h-full" />
       <div className="absolute top-4 right-4 bg-white/80 px-4 py-2 rounded-full font-mono text-xl font-bold text-orange-600 shadow-sm border border-orange-100 pointer-events-none z-10">
         SCORE: {currentScore.toString().padStart(5, '0')}
