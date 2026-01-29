@@ -43,9 +43,20 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({ onGameO
       canvas.width = config.canvasWidth;
       canvas.height = config.canvasHeight;
 
-      const loadImg = (s: string) => new Promise<HTMLImageElement>((r) => {
-        const i = new Image(); i.src = s; i.onload = () => r(i); i.onerror = () => r(null as any);
-      });
+const loadImg = (src: string) =>
+  new Promise<HTMLImageElement | null>((resolve) => {
+    const img = new Image();
+    img.src = src;
+    img.onload = () => {
+      console.log('loaded image:', src, img.width, 'x', img.height);
+      resolve(img);
+    };
+    img.onerror = (e) => {
+      console.error('FAILED to load image:', src, e);
+      resolve(null);
+    };
+  });
+
 
       assetsRef.current.bgFar = await loadImg("/assets/images/bg_far.png");
       assetsRef.current.bgMid = await loadImg("/assets/images/bg_mid.png");
@@ -99,11 +110,21 @@ spineRef.current = {
     const dt = (time - lastTimeRef.current) / 1000;
     lastTimeRef.current = time;
     const ctx = canvasRef.current?.getContext('2d');
+　  // ←ここにログを追加
+　  console.log('update isReady=', isReady, 'ctx=', !!ctx);
+    
     if (!ctx || !isReady) {
       requestRef.current = requestAnimationFrame(update);
       return;
     }
+ // ★テスト用：毎フレーム赤い四角を描く（後で消してOK）
+  ctx.clearRect(0, 0, config.canvasWidth, config.canvasHeight);
+  ctx.fillStyle = '#ff0000';
+  ctx.fillRect(10, 10, 80, 80);
 
+  // 本来の描画（背景やプレイヤー）は、この下に今までのコードが続く感じで OK
+  // ...
+});
     scoreRef.current += dt * 10;
     setCurrentScore(Math.floor(scoreRef.current));
     scrollRef.current.bgFar = (scrollRef.current.bgFar + config.initialSpeed * 0.2) % config.canvasWidth;
