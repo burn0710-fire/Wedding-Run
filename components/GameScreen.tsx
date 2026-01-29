@@ -257,7 +257,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
 
   return (
     <div
-      className="w-full h-full flex items-center justify-center bg-slate-100"
+      className="w-screen h-screen flex items-center justify-center bg-slate-100"
       onMouseDown={handleJump}
       onTouchStart={handleJump}
     >
