@@ -1,7 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as spine from "@esotericsoftware/spine-canvas";
-import gameConfigData from '../config/game';
+console.log("Spine VERSION:", (spine as any).VERSION);
+console.log("AssetManager:", (spine as any).AssetManager);
+console.log("Downloader:", (spine as any).Downloader);
 
+import gameConfigData from '../config/game';
 const config = gameConfigData;
 
 enum PlayerState {
@@ -9,6 +12,7 @@ enum PlayerState {
   JUMPING = 'JUMPING',
   CRASHED = 'CRASHED'
 }
+
 
 const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({ onGameOver }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -30,6 +34,9 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({ onGameO
   const scrollRef = useRef({ bgFar: 0, bgMid: 0, ground: 0 });
 
   useEffect(() => {
+    console.log('GameScreen mounted');
+    console.log('spine version:', (spine as any).VERSION);
+    
     const init = async () => {
       if (!canvasRef.current) return;
       const canvas = canvasRef.current;
@@ -44,30 +51,37 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({ onGameO
       assetsRef.current.bgMid = await loadImg("assets/images/bg_mid.png");
       assetsRef.current.ground = await loadImg("assets/images/ground.png");
 
-      const assetManager = new spine.AssetManager("assets/spine/player/");
-      assetManager.loadText("char_v2.json");
-      assetManager.loadTextureAtlas("char_v2.atlas");
+// Spine のアセットローダーを作成
+const assetManager = new (spine as any).AssetManager(
+  "assets/spine/player/",
+  new (spine as any).Downloader()
+);
+
+// プレイヤー用 Spine データを読み込み
+assetManager.loadText("char_v2.json");
+assetManager.loadTextureAtlas("char_v2.atlas");
+
 
       const check = () => {
         if (assetManager.isLoadingComplete()) {
           try {
-            const atlas = assetManager.get("char_v2.atlas");
-            const json = assetManager.get("char_v2.json");
-            const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
-            const skeletonJson = new spine.SkeletonJson(atlasLoader);
-            
-            // ★物理エラー(physics is undefined)を強制回避
-            (skeletonJson as any).readPhysics = () => {}; 
-            (skeletonJson as any).readPhysicsConstraint = () => {}; 
+const atlas = assetManager.get("char_v2.atlas");
+const json = assetManager.get("char_v2.json");
+const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
+const skeletonJson = new spine.SkeletonJson(atlasLoader);
+const skeletonData = skeletonJson.readSkeletonData(json);
 
-            const skeletonData = skeletonJson.readSkeletonData(json);
-            const skeleton = new spine.Skeleton(skeletonData);
-            skeleton.scaleX = skeleton.scaleY = 0.25;
-            
-            const state = new spine.AnimationState(new spine.AnimationStateData(skeletonData));
-            state.setAnimation(0, "run", true);
-            
-            spineRef.current = { skeleton, state, renderer: new spine.SkeletonRenderer(canvas.getContext("2d")!) };
+const skeleton = new spine.Skeleton(skeletonData);
+
+const state = new spine.AnimationState(new spine.AnimationStateData(skeletonData));
+state.setAnimation(0, "run", true);
+
+spineRef.current = {
+  skeleton,
+  state,
+  renderer: new spine.SkeletonRenderer(canvas.getContext("2d")!)
+};
+
           } catch (e) {
             console.warn("Spineの初期化エラー:", e);
           }
