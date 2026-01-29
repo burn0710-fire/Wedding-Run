@@ -1,4 +1,6 @@
 console.log((spine as any).VERSION);
+console.log('GameScreen mounted');
+
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as spine from "@esotericsoftware/spine-canvas";
 import gameConfigData from '../config/game';
