@@ -2,7 +2,6 @@ console.log((spine as any).VERSION);
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as spine from "@esotericsoftware/spine-canvas";
 import gameConfigData from '../config/game';
-
 const config = gameConfigData;
 
 enum PlayerState {
@@ -10,6 +9,8 @@ enum PlayerState {
   JUMPING = 'JUMPING',
   CRASHED = 'CRASHED'
 }
+
+;(window as any).physics = (window as any).physics ?? {};
 
 const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({ onGameOver }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
