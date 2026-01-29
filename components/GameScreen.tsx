@@ -1,251 +1,278 @@
 import React, {
+  useCallback,
   useEffect,
   useRef,
   useState,
-  useCallback,
 } from "react";
 
-enum PlayerState {
-  RUNNING = "RUNNING",
-  JUMPING = "JUMPING",
-  CRASHED = "CRASHED",
-}
+type ObstacleType =
+  | "GROUND_SMALL"
+  | "GROUND_LARGE"
+  | "FLYING_SMALL"
+  | "FLYING_LARGE";
 
-type Enemy = {
+type Obstacle = {
+  type: ObstacleType;
   x: number;
   y: number;
   width: number;
   height: number;
-  speed: number;
+  markedForDeletion: boolean;
 };
 
+interface GameScreenProps {
+  onGameOver: (score: number) => void;
+}
+
+// ==== 画面サイズ・見た目 ====
 const CANVAS_W = 800;
 const CANVAS_H = 450;
 
 const GROUND_HEIGHT = 80;
+const GROUND_Y = CANVAS_H - GROUND_HEIGHT;
+
 const PLAYER_WIDTH = 50;
 const PLAYER_HEIGHT = 80;
 
-const ENEMY_WIDTH = 40;
-const ENEMY_HEIGHT = 60;
+// ==== 物理パラメータ（前のロジックベース・フレーム単位） ====
+// ここが「ジャンプの気持ちよさ」を決める
+const GRAVITY = 0.8;        // 1フレームごとに +0.8
+const JUMP_STRENGTH = -15;  // ジャンプ開始時の速度（上向き）
 
-// ==== 物理パラメータ ====
-// もとのジャンプよりかなり低く（約 1/20）
-const GRAVITY = 1800;
-const JUMP_STRENGTH = -180; // ここを上げ下げで微調整
+// ==== 敵スピード関連（px / frame）====
+const INITIAL_SPEED = 8;
+const MAX_SPEED = 26;
+const ACCELERATION = 0.03; // フレームごとに速度がじわじわ増える
 
-const MAX_JUMPS = 1;
+// spawn 間隔（frame 単位）
+const SPAWN_BASE_MIN = 60;  // だいたいこのあたり〜
+const SPAWN_BASE_VAR = 80;  // + ランダム
 
-// ==== 敵のスピード & 出現タイミング ====
-// 基本スピード
-const ENEMY_SPEED_START = 220;
-const ENEMY_SPEED_MAX = 700;
-// 時間経過でだんだん速くなる
-const ENEMY_SPEED_GROWTH = 40; // 毎秒 +40 くらい
-
-// 出現間隔（秒）
-const SPAWN_INTERVAL_START = 1.6; // 最初はゆっくり
-const SPAWN_INTERVAL_MIN = 0.6;   // ここまで短くなる
-const SPAWN_INTERVAL_DECAY = 0.08; // 毎秒 0.08 ずつ短く
-
-const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
-  onGameOver,
-}) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const requestRef = useRef<number>(0);
-  const lastTimeRef = useRef<number>(performance.now());
+  const lastTimeRef = useRef<number>(0);
 
-  const [currentScore, setCurrentScore] = useState(0);
   const scoreRef = useRef<number>(0);
+  const [currentScore, setCurrentScore] = useState(0);
 
-  const playerRef = useRef({
-    y: CANVAS_H - GROUND_HEIGHT - PLAYER_HEIGHT,
-    vy: 0,
-    state: PlayerState.RUNNING,
-    jumpCount: 0,
+  const gameState = useRef({
+    isPlaying: true,
+    speed: INITIAL_SPEED,
+    frameCount: 0,
+    nextSpawnThreshold: SPAWN_BASE_MIN,
+
+    player: {
+      x: 80,
+      y: GROUND_Y, // 「足元」の Y（上向きにジャンプ）
+      dy: 0,
+      isJumping: false,
+      width: PLAYER_WIDTH,
+      height: PLAYER_HEIGHT,
+    },
+
+    obstacles: [] as Obstacle[],
   });
 
-  const enemiesRef = useRef<Enemy[]>([]);
-  const isGameOverRef = useRef(false);
+  // ===== ジャンプ開始（マウス押下 / タップ開始） =====
+  const startJump = useCallback(() => {
+    const state = gameState.current;
+    if (!state.isPlaying) return;
 
-  // 敵スピード & 出現間隔の変化用
-  const enemySpeedRef = useRef(ENEMY_SPEED_START);
-  const spawnIntervalRef = useRef(SPAWN_INTERVAL_START);
-  const spawnTimerRef = useRef(0);
-
-  const enemyGroundY = CANVAS_H - GROUND_HEIGHT - ENEMY_HEIGHT;
-
-  // 初期化
-  useEffect(() => {
-    console.log("Dino-like GameScreen mounted");
-
-    const canvas = canvasRef.current;
-    if (canvas) {
-      canvas.width = CANVAS_W;
-      canvas.height = CANVAS_H;
+    if (!state.player.isJumping) {
+      state.player.dy = JUMP_STRENGTH;
+      state.player.isJumping = true;
     }
-
-    enemiesRef.current = [];
-    enemySpeedRef.current = ENEMY_SPEED_START;
-    spawnIntervalRef.current = SPAWN_INTERVAL_START;
-    spawnTimerRef.current = 0.5; // 最初の敵は0.5秒後くらい
-
-    scoreRef.current = 0;
-    setCurrentScore(0);
-    isGameOverRef.current = false;
-
-    return () => {
-      cancelAnimationFrame(requestRef.current);
-    };
   }, []);
 
+  // ===== ジャンプ終了（マウス離し / タップ終了） =====
+  // 押しっぱなしで高く、早めに離すと低くなる感じ
+  const endJump = useCallback(() => {
+    const state = gameState.current;
+    if (state.player.isJumping && state.player.dy < -2) {
+      state.player.dy = state.player.dy * 0.45;
+    }
+  }, []);
+
+  // ===== メインループ =====
   const update = useCallback(
     (time: number) => {
-      const dt = (time - lastTimeRef.current) / 1000;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const dtMs = time - (lastTimeRef.current || time);
       lastTimeRef.current = time;
 
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext("2d");
-      if (!ctx) {
-        requestRef.current = requestAnimationFrame(update);
-        return;
+      const state = gameState.current;
+
+      // ---- スコアは dt を使って緩やかに加算 ----
+      if (state.isPlaying) {
+        // Dino Run っぽく「速いほどスコア増加も早い」
+        scoreRef.current += 0.1 * (state.speed / INITIAL_SPEED) * (dtMs / 16.67);
+        const s = Math.floor(scoreRef.current);
+        if (s !== currentScore) setCurrentScore(s);
       }
 
-      const playerX = 80;
+      // ==== GAME UPDATE ====
+      if (state.isPlaying) {
+        // スピードアップ
+        state.speed = Math.min(MAX_SPEED, state.speed + ACCELERATION);
 
-      // スコア
-      if (!isGameOverRef.current) {
-        scoreRef.current += dt * 10;
-        setCurrentScore(Math.floor(scoreRef.current));
-      }
+        // プレイヤー物理（フレームベース）
+        state.player.dy += GRAVITY;
+        state.player.y += state.player.dy;
 
-      // ===== プレイヤー物理 =====
-      const p = playerRef.current;
-      p.vy += GRAVITY * dt;
-      p.y += p.vy;
+        // 地面との当たり
+        if (state.player.y > GROUND_Y) {
+          state.player.y = GROUND_Y;
+          state.player.dy = 0;
+          if (state.player.isJumping) {
+            state.player.isJumping = false;
+          }
+        }
 
-      const groundY = CANVAS_H - GROUND_HEIGHT - PLAYER_HEIGHT;
-      if (p.y > groundY) {
-        p.y = groundY;
-        p.vy = 0;
-        p.jumpCount = 0;
-      }
+        // 敵 spawn 管理
+        state.frameCount++;
 
-      // ===== 敵スピード & 出現間隔を時間で変化 =====
-      enemySpeedRef.current = Math.min(
-        ENEMY_SPEED_MAX,
-        enemySpeedRef.current + ENEMY_SPEED_GROWTH * dt
-      );
-      spawnIntervalRef.current = Math.max(
-        SPAWN_INTERVAL_MIN,
-        spawnIntervalRef.current - SPAWN_INTERVAL_DECAY * dt
-      );
+        if (state.frameCount > state.nextSpawnThreshold) {
+          state.frameCount = 0;
 
-      // ===== 敵出現（ランダム間隔） =====
-      spawnTimerRef.current -= dt;
-      if (!isGameOverRef.current && spawnTimerRef.current <= 0) {
-        enemiesRef.current.push({
-          x: CANVAS_W + 40,
-          y: enemyGroundY,
-          width: ENEMY_WIDTH,
-          height: ENEMY_HEIGHT,
-          speed: enemySpeedRef.current,
+          // ランダムでタイプ選択
+          const r = Math.random();
+          let type: ObstacleType = "GROUND_SMALL";
+          let width = 30;
+          let height = 30;
+          let yPos = GROUND_Y - height;
+
+          if (r < 0.4) {
+            type = "GROUND_SMALL";
+            width = 30;
+            height = 30;
+            yPos = GROUND_Y - height;
+          } else if (r < 0.7) {
+            type = "GROUND_LARGE";
+            width = 45;
+            height = 55;
+            yPos = GROUND_Y - height;
+          } else if (r < 0.9) {
+            type = "FLYING_SMALL";
+            width = 30;
+            height = 25;
+            yPos = GROUND_Y - 60;
+          } else {
+            type = "FLYING_LARGE";
+            width = 50;
+            height = 40;
+            yPos = GROUND_Y - 80;
+          }
+
+          state.obstacles.push({
+            type,
+            x: CANVAS_W + 50,
+            y: yPos,
+            width,
+            height,
+            markedForDeletion: false,
+          });
+
+          // 次の spawn までのフレーム数
+          state.nextSpawnThreshold =
+            SPAWN_BASE_MIN + Math.random() * SPAWN_BASE_VAR;
+        }
+
+        // 敵の移動・削除
+        state.obstacles.forEach((obs) => {
+          obs.x -= state.speed;
+          if (obs.x + obs.width < -100) {
+            obs.markedForDeletion = true;
+          }
         });
+        state.obstacles = state.obstacles.filter((o) => !o.markedForDeletion);
 
-        // 間隔 ±30% くらいのランダム
-        const base = spawnIntervalRef.current;
-        spawnTimerRef.current = base * (0.7 + Math.random() * 0.6);
-      }
+        // ==== 当たり判定 ====
+        const playerLeft = state.player.x;
+        const playerRight = state.player.x + state.player.width;
+        const playerBottom = state.player.y;
+        const playerTop = state.player.y - state.player.height;
 
-      // ===== 敵の移動 =====
-      enemiesRef.current.forEach((e) => {
-        // 既存の敵も少しずつ加速させる
-        e.speed = Math.min(
-          ENEMY_SPEED_MAX,
-          e.speed + ENEMY_SPEED_GROWTH * dt
-        );
-        e.x -= e.speed * dt;
-      });
+        const playerPadding = 10;
 
-      // 画面外の敵は削除
-      enemiesRef.current = enemiesRef.current.filter(
-        (e) => e.x + e.width > 0
-      );
+        for (const obs of state.obstacles) {
+          const obsLeft = obs.x + playerPadding;
+          const obsRight = obs.x + obs.width - playerPadding;
+          const obsTop = obs.y;
+          const obsBottom = obs.y + obs.height;
 
-      // ===== 当たり判定 =====
-      if (!isGameOverRef.current) {
-        const playerHitBox = {
-          x: playerX,
-          y: p.y,
-          w: PLAYER_WIDTH,
-          h: PLAYER_HEIGHT,
-        };
-
-        for (const e of enemiesRef.current) {
           const hit =
-            playerHitBox.x < e.x + e.width &&
-            playerHitBox.x + playerHitBox.w > e.x &&
-            playerHitBox.y < e.y + e.height &&
-            playerHitBox.y + playerHitBox.h > e.y;
+            playerLeft < obsRight &&
+            playerRight > obsLeft &&
+            playerTop < obsBottom &&
+            playerBottom > obsTop;
 
           if (hit) {
-            console.log("HIT!");
-            isGameOverRef.current = true;
-            cancelAnimationFrame(requestRef.current);
+            state.isPlaying = false;
             onGameOver(Math.floor(scoreRef.current));
-            return;
+            break;
           }
         }
       }
 
-      // ===== 描画 =====
+      // ==== 描画 ====
+      ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+
       // 背景
       ctx.fillStyle = "#8fd3ff";
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
       // 地面
       ctx.fillStyle = "#4caf50";
-      ctx.fillRect(
-        0,
-        CANVAS_H - GROUND_HEIGHT,
-        CANVAS_W,
-        GROUND_HEIGHT
-      );
+      ctx.fillRect(0, GROUND_Y, CANVAS_W, GROUND_HEIGHT);
 
       // プレイヤー
+      const px = state.player.x;
+      const pyTop = state.player.y - state.player.height;
       ctx.fillStyle = "red";
-      ctx.fillRect(playerX, p.y, PLAYER_WIDTH, PLAYER_HEIGHT);
+      ctx.fillRect(px, pyTop, state.player.width, state.player.height);
 
       // 敵
-      ctx.fillStyle = "blue";
-      enemiesRef.current.forEach((e) => {
-        ctx.fillRect(e.x, e.y, e.width, e.height);
+      state.obstacles.forEach((obs) => {
+        ctx.fillStyle =
+          obs.type === "GROUND_SMALL" || obs.type === "GROUND_LARGE"
+            ? "#1d4ed8"
+            : "#2563eb";
+        ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
       });
 
       requestRef.current = requestAnimationFrame(update);
     },
-    [onGameOver]
+    [currentScore, onGameOver]
   );
 
+  // 初期セットアップ
   useEffect(() => {
-    requestRef.current = requestAnimationFrame(update);
-    return () => cancelAnimationFrame(requestRef.current);
-  }, [update]);
-
-  const handleMouseDown = () => {
-    if (isGameOverRef.current) return;
-
-    // 一段ジャンプのみ
-    if (playerRef.current.jumpCount < MAX_JUMPS) {
-      playerRef.current.vy = JUMP_STRENGTH;
-      playerRef.current.jumpCount++;
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.width = CANVAS_W;
+      canvas.height = CANVAS_H;
     }
-  };
+
+    lastTimeRef.current = performance.now();
+    requestRef.current = requestAnimationFrame(update);
+
+    return () => {
+      cancelAnimationFrame(requestRef.current);
+    };
+  }, [update]);
 
   return (
     <div
-      className="w-full h-full relative bg-[#003654]"
-      onMouseDown={handleMouseDown}
+      className="w-full h-full relative bg-[#003654] select-none"
+      onMouseDown={startJump}
+      onMouseUp={endJump}
+      onTouchStart={startJump}
+      onTouchEnd={endJump}
     >
       <div className="absolute inset-0 flex items-center justify-center">
         <div
@@ -260,17 +287,13 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
             ref={canvasRef}
             width={CANVAS_W}
             height={CANVAS_H}
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "block",
-            }}
+            style={{ width: "100%", height: "100%", display: "block" }}
           />
         </div>
       </div>
 
-      <div className="absolute top-4 right-4 bg-white/80 px-3 py-1 rounded-lg font-bold text-orange-600">
-        SCORE: {currentScore.toString().padStart(5, "0")}
+      <div className="absolute top-4 right-4 bg-white/80 px-4 py-2 rounded-full font-mono text-xl font-bold text-orange-600 shadow-sm z-10">
+        SCORE: {Math.floor(scoreRef.current).toString().padStart(5, "0")}
       </div>
     </div>
   );
