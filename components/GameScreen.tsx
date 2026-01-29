@@ -9,7 +9,6 @@ enum PlayerState {
   CRASHED = 'CRASHED'
 }
 
-;(window as any).physics = (window as any).physics ?? {};
 
 const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({ onGameOver }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
