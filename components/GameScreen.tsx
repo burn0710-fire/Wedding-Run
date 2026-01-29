@@ -61,14 +61,14 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
 
   const obstaclesRef = useRef<Obstacle[]>([]);
 
-  // Spineアセットの読み込み
+// Spineアセットの読み込み
   const loadSpineAssets = async (canvas: HTMLCanvasElement) => {
-    // 指定されたパス: public/assets/spine/player/
+    // フォルダ階層: public/assets/spine/player/
     const baseUrl = "assets/spine/player/";
     const assetManager = new spine.AssetManager(baseUrl);
 
-    // アトラス名が character.atlas とのことなので修正
-    assetManager.loadText("player.json");
+    // すべて "character" に統一
+    assetManager.loadText("character.json");
     assetManager.loadTextureAtlas("character.atlas");
 
     await assetManager.waitForAssets();
@@ -76,14 +76,16 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     const atlas = assetManager.require("character.atlas");
     const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
     const skeletonJson = new spine.SkeletonJson(atlasLoader);
-    const skeletonData = skeletonJson.readSkeletonData(assetManager.require("player.json"));
+    
+    // ここも character.json を読み込むように修正
+    const skeletonData = skeletonJson.readSkeletonData(assetManager.require("character.json"));
     
     const skeleton = new spine.Skeleton(skeletonData);
     const stateData = new spine.AnimationStateData(skeletonData);
     const state = new spine.AnimationState(stateData);
     const renderer = new spine.SkeletonRenderer(canvas.getContext("2d")!);
 
-    // スケール調整（キャラの大きさに合わせて 0.1 ~ 0.5 くらいで調整してください）
+    // サイズ調整（0.25は例です。画面に合わせて調整してください）
     skeleton.setScale(0.25, 0.25); 
     state.setAnimation(0, "run", true);
 
