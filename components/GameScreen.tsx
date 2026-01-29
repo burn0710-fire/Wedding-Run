@@ -45,14 +45,14 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({ onGameO
       assetsRef.current.ground = await loadImg("assets/images/ground.png");
 
       const assetManager = new spine.AssetManager("assets/spine/player/");
-      assetManager.loadText("character.json");
-      assetManager.loadTextureAtlas("character.atlas");
+      assetManager.loadText("char_v2.json");
+      assetManager.loadTextureAtlas("char_v2.atlas");
 
       const check = () => {
         if (assetManager.isLoadingComplete()) {
           try {
-            const atlas = assetManager.get("character.atlas");
-            const json = assetManager.get("character.json");
+            const atlas = assetManager.get("char_v2.atlas");
+            const json = assetManager.get("char_v2.json");
             const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
             const skeletonJson = new spine.SkeletonJson(atlasLoader);
             
