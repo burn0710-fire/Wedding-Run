@@ -22,9 +22,17 @@ offsets:523,534,750,1000
 elbow_L
 bounds:129,201,59,61
 offsets:260,376,750,1000
+eye_L_close
+bounds:745,47,103,31
+offsets:227,578,750,1000
+rotate:90
 eye_L_surp
 bounds:488,22,100,84
 offsets:232,552,750,1000
+eye_R_close
+bounds:755,616,102,30
+offsets:422,578,750,1000
+rotate:90
 eye_R_surp
 bounds:34,181,98,99
 offsets:423,544,750,1000
