@@ -4,33 +4,62 @@ import React, {
   useState,
   useCallback,
 } from "react";
+import * as spine from "@esotericsoftware/spine-canvas";
 
 import gameConfigData from "../config/game";
-
 const config = gameConfigData;
 
-// 画像パス
-const IMAGE_BASE = import.meta.env.BASE_URL + "assets/images/";
+// GitHub Pages / ローカル両対応用のベースパス
+// （必要に応じて "/Wedding-Run/" などに固定してもOK）
+const base =
+  (typeof import.meta !== "undefined" &&
+    (import.meta as any).env.BASE_URL) ||
+  "/Wedding-Run/";
 
-// キャンバスサイズ
-const CANVAS_WIDTH = config.canvasWidth ?? 960;
-const CANVAS_HEIGHT = config.canvasHeight ?? 540;
+// プレイヤー状態（今はほぼ未使用だが将来拡張用）
+enum PlayerState {
+  RUNNING = "RUNNING",
+  JUMPING = "JUMPING",
+  CRASHED = "CRASHED",
+}
 
-const GameScreen: React.FC = () => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+// 敵データ
+type Enemy = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  speed: number;
+};
+
+const ENEMY_WIDTH = 40;
+const ENEMY_HEIGHT = 40;
+const ENEMY_BASE_SPEED = 220; // 敵の基本速度(px/秒)
+const PLAYER_WIDTH = 50; // 当たり判定用。適当な幅を決め打ち
+
+const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
+  onGameOver,
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
+  const scoreRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(performance.now());
+  const [currentScore, setCurrentScore] = useState(0);
+  const [isReady, setIsReady] = useState(false);
 
-  // スコアは ref で積算 → state に反映
-  const scoreRef = useRef(0);
-  const [score, setScore] = useState(0);
+  const spineRef = useRef<any>(null);
+  const assetsRef = useRef<any>({
+    bgFar: null,
+    bgMid: null,
+    ground: null,
+  });
 
-  // 画像とスクロール量
-  const assetsRef = useRef<{
-    bgFar: HTMLImageElement | null;
-    bgMid: HTMLImageElement | null;
-    ground: HTMLImageElement | null;
-  }>({ bgFar: null, bgMid: null, ground: null });
+  const playerRef = useRef({
+    y: config.canvasHeight - config.groundHeight - config.playerHeight,
+    vy: 0,
+    state: PlayerState.RUNNING,
+    jumpCount: 0,
+  });
 
   const scrollRef = useRef({
     bgFar: 0,
@@ -38,171 +67,374 @@ const GameScreen: React.FC = () => {
     ground: 0,
   });
 
-  const [isReady, setIsReady] = useState(false);
+  const enemiesRef = useRef<Enemy[]>([]);
+  const isGameOverRef = useRef(false);
 
-  // 画像ロード
+  // 初期化
   useEffect(() => {
-    console.log("=== GameScreen mounted ===");
-    console.log("BASE_URL:", import.meta.env.BASE_URL);
+    console.log("GameScreen mounted");
+    console.log("spine.VERSION:", (spine as any).VERSION);
 
-    const loadImg = (src: string) =>
-      new Promise<HTMLImageElement | null>((resolve) => {
-        const img = new Image();
-        img.src = src;
-        img.onload = () => {
-          console.log("loaded image:", src, img.width, "x", img.height);
-          resolve(img);
-        };
-        img.onerror = (e) => {
-          console.error("FAILED to load image:", src, e);
-          resolve(null);
-        };
-      });
+    isGameOverRef.current = false;
+    scoreRef.current = 0;
+    setCurrentScore(0);
 
-    (async () => {
-      const [bgFar, bgMid, ground] = await Promise.all([
-        loadImg(IMAGE_BASE + "bg_far.png"),
-        loadImg(IMAGE_BASE + "bg_mid.png"),
-        loadImg(IMAGE_BASE + "ground.png"),
-      ]);
-
-      assetsRef.current = { bgFar, bgMid, ground };
-
+    const init = async () => {
+      if (!canvasRef.current) return;
       const canvas = canvasRef.current;
-      if (canvas) {
-        canvas.width = CANVAS_WIDTH;
-        canvas.height = CANVAS_HEIGHT;
-      }
 
-      setIsReady(true);
-    })();
+      // Canvas 物理サイズ
+      canvas.width = config.canvasWidth;
+      canvas.height = config.canvasHeight;
+
+      const loadImg = (src: string) =>
+        new Promise<HTMLImageElement | null>((resolve) => {
+          const img = new Image();
+          img.src = src;
+          img.onload = () => {
+            console.log(
+              "loaded image:",
+              src,
+              img.width,
+              "x",
+              img.height
+            );
+            resolve(img);
+          };
+          img.onerror = (e) => {
+            console.error("FAILED to load image:", src, e);
+            resolve(null);
+          };
+        });
+
+      // 背景画像を読み込み
+      assetsRef.current.bgFar = await loadImg(
+        `${base}assets/images/bg_far.png`
+      );
+      assetsRef.current.bgMid = await loadImg(
+        `${base}assets/images/bg_mid.png`
+      );
+      assetsRef.current.ground = await loadImg(
+        `${base}assets/images/ground.png`
+      );
+
+      // Spine AssetManager
+      const AssetManager = (spine as any).AssetManager;
+      const Downloader = (spine as any).Downloader;
+
+      const assetManager = new AssetManager(
+        `${base}assets/spine/player/`,
+        new Downloader()
+      );
+
+      assetManager.loadText("char_v2.json");
+      assetManager.loadTextureAtlas("char_v2.atlas");
+
+      const check = () => {
+        if (assetManager.isLoadingComplete()) {
+          const atlas = assetManager.get("char_v2.atlas");
+          const jsonText = assetManager.get("char_v2.json");
+          console.log("Spine assets loaded:", atlas, jsonText);
+
+          try {
+            const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
+            const skeletonJson = new spine.SkeletonJson(atlasLoader);
+            const skeletonData =
+              skeletonJson.readSkeletonData(jsonText);
+
+            const skeleton = new spine.Skeleton(skeletonData);
+            const state = new spine.AnimationState(
+              new spine.AnimationStateData(skeletonData)
+            );
+            state.setAnimation(0, "run", true);
+
+            const ctx = canvas.getContext("2d");
+            if (!ctx) {
+              console.error("cannot get 2d context");
+              return;
+            }
+
+            const renderer = new spine.SkeletonRenderer(ctx);
+
+            spineRef.current = {
+              skeleton,
+              state,
+              renderer,
+            };
+          } catch (e) {
+            console.warn("Spine init error:", e);
+          }
+
+          // 敵の初期配置
+          const enemyGroundY =
+            config.canvasHeight - config.groundHeight - ENEMY_HEIGHT;
+          enemiesRef.current = [
+            {
+              x: config.canvasWidth + 100,
+              y: enemyGroundY,
+              width: ENEMY_WIDTH,
+              height: ENEMY_HEIGHT,
+              speed: ENEMY_BASE_SPEED,
+            },
+            {
+              x: config.canvasWidth + 400,
+              y: enemyGroundY,
+              width: ENEMY_WIDTH,
+              height: ENEMY_HEIGHT,
+              speed: ENEMY_BASE_SPEED * 1.15,
+            },
+          ];
+
+          setIsReady(true);
+        } else {
+          setTimeout(check, 100);
+        }
+      };
+
+      check();
+    };
+
+    init();
+
+    return () => {
+      // アンマウント時にアニメーション停止
+      cancelAnimationFrame(requestRef.current);
+    };
   }, []);
 
-  // 描画ループ
+  // メインループ
   const update = useCallback(
     (time: number) => {
       const dt = (time - lastTimeRef.current) / 1000;
       lastTimeRef.current = time;
 
       const canvas = canvasRef.current;
-      if (!canvas) {
-        requestRef.current = requestAnimationFrame(update);
-        return;
-      }
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
+      const ctx = canvas?.getContext("2d");
+      if (!ctx || !isReady) {
         requestRef.current = requestAnimationFrame(update);
         return;
       }
 
-      if (isReady) {
-        // スコア更新（1秒あたり 10 点）
+      const playerX = 80;
+
+      // --- スコア & スクロール ---
+      if (!isGameOverRef.current) {
         scoreRef.current += dt * 10;
-        setScore(Math.floor(scoreRef.current));
-
-        // スクロール値更新
-        const baseSpeed = config.initialSpeed ?? 4;
-        scrollRef.current.bgFar =
-          (scrollRef.current.bgFar + baseSpeed * 0.2) % CANVAS_WIDTH;
-        scrollRef.current.bgMid =
-          (scrollRef.current.bgMid + baseSpeed * 0.5) % CANVAS_WIDTH;
-        scrollRef.current.ground =
-          (scrollRef.current.ground + baseSpeed) % CANVAS_WIDTH;
+        setCurrentScore(Math.floor(scoreRef.current));
       }
 
-      // ===== 描画 =====
+      scrollRef.current.bgFar =
+        (scrollRef.current.bgFar +
+          config.initialSpeed * 0.2 * dt) %
+        config.canvasWidth;
+      scrollRef.current.bgMid =
+        (scrollRef.current.bgMid +
+          config.initialSpeed * 0.5 * dt) %
+        config.canvasWidth;
+      scrollRef.current.ground =
+        (scrollRef.current.ground +
+          config.initialSpeed * 1.0 * dt) %
+        config.canvasWidth;
 
-      // 空の色（保険）
-      ctx.fillStyle = "#87CEEB";
-      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      // --- プレイヤーの物理 ---
+      const p = playerRef.current;
+      p.vy += config.gravity;
+      p.y += p.vy;
+      const groundY =
+        config.canvasHeight -
+        config.groundHeight -
+        config.playerHeight;
+      if (p.y > groundY) {
+        p.y = groundY;
+        p.vy = 0;
+        p.jumpCount = 0;
+      }
 
-      // 背景画像をループ描画
+      // --- 敵の移動 ---
+      enemiesRef.current.forEach((e) => {
+        e.x -= e.speed * dt;
+        if (e.x + e.width < 0) {
+          e.x =
+            config.canvasWidth + 200 + Math.random() * 300;
+        }
+      });
+
+      // --- 当たり判定 ---
+      if (!isGameOverRef.current) {
+        const playerHitBox = {
+          x: playerX,
+          y: p.y,
+          w: PLAYER_WIDTH,
+          h: config.playerHeight,
+        };
+
+        for (const e of enemiesRef.current) {
+          const hit =
+            playerHitBox.x <
+              e.x + e.width &&
+            playerHitBox.x + playerHitBox.w >
+              e.x &&
+            playerHitBox.y <
+              e.y + e.height &&
+            playerHitBox.y + playerHitBox.h >
+              e.y;
+
+          if (hit) {
+            console.log("HIT!");
+            isGameOverRef.current = true;
+            cancelAnimationFrame(requestRef.current);
+            onGameOver(Math.floor(scoreRef.current));
+            return;
+          }
+        }
+      }
+
+      // --- 描画 ---
+      ctx.clearRect(
+        0,
+        0,
+        config.canvasWidth,
+        config.canvasHeight
+      );
+
       const drawLoop = (
         img: HTMLImageElement | null,
-        scrollX: number,
+        x: number,
         y: number,
         h: number
       ) => {
         if (!img) return;
-        ctx.drawImage(img, -scrollX, y, CANVAS_WIDTH, h);
-        ctx.drawImage(img, -scrollX + CANVAS_WIDTH, y, CANVAS_WIDTH, h);
+        ctx.drawImage(
+          img,
+          -x,
+          y,
+          config.canvasWidth,
+          h
+        );
+        ctx.drawImage(
+          img,
+          -x + config.canvasWidth,
+          y,
+          config.canvasWidth,
+          h
+        );
       };
 
-      const groundHeight = config.groundHeight ?? 120;
-
+      // 背景・地面
       drawLoop(
         assetsRef.current.bgFar,
         scrollRef.current.bgFar,
         0,
-        CANVAS_HEIGHT
+        config.canvasHeight
       );
       drawLoop(
         assetsRef.current.bgMid,
         scrollRef.current.bgMid,
         0,
-        CANVAS_HEIGHT
+        config.canvasHeight
       );
       drawLoop(
         assetsRef.current.ground,
         scrollRef.current.ground,
-        CANVAS_HEIGHT - groundHeight,
-        groundHeight
+        config.canvasHeight - config.groundHeight,
+        config.groundHeight
       );
 
-      // プレイヤーの赤い四角（Spine の代わり）
-      ctx.fillStyle = "#ff0000";
+      // デバッグ用プレイヤー四角（赤）
+      ctx.fillStyle = "red";
       ctx.fillRect(
-        100,
-        CANVAS_HEIGHT - groundHeight - 50,
-        50,
-        50
+        playerX,
+        p.y,
+        PLAYER_WIDTH,
+        config.playerHeight
       );
+
+      // 敵（青い四角）
+      ctx.fillStyle = "blue";
+      enemiesRef.current.forEach((e) => {
+        ctx.fillRect(
+          e.x,
+          e.y,
+          e.width,
+          e.height
+        );
+      });
+
+      // Spine キャラ描画（上から被せる）
+      if (spineRef.current) {
+        const { skeleton, state, renderer } =
+          spineRef.current;
+        state.update(dt);
+        state.apply(skeleton);
+        skeleton.updateWorldTransform();
+        skeleton.x = playerX;
+        skeleton.y = p.y + config.playerHeight;
+        renderer.draw(skeleton);
+      }
 
       requestRef.current = requestAnimationFrame(update);
     },
-    [isReady]
+    [isReady, onGameOver]
   );
 
+  // requestAnimationFrame 開始
   useEffect(() => {
     requestRef.current = requestAnimationFrame(update);
-    return () => cancelAnimationFrame(requestRef.current);
+    return () =>
+      cancelAnimationFrame(requestRef.current);
   }, [update]);
+
+  // クリックでジャンプ
+  const handleMouseDown = () => {
+    if (isGameOverRef.current) return;
+
+    if (playerRef.current.jumpCount < config.maxJumps) {
+      playerRef.current.vy = config.jumpStrength;
+      playerRef.current.jumpCount++;
+
+      if (spineRef.current) {
+        spineRef.current.state.setAnimation(
+          0,
+          "jump",
+          false
+        );
+        spineRef.current.state.addAnimation(
+          0,
+          "run",
+          true,
+          0
+        );
+      }
+    }
+  };
 
   return (
     <div
-      className="w-screen h-screen flex items-center justify-center"
-      style={{ background: "#003355" }}
+      className="w-full h-full relative bg-[#003654]"
+      onMouseDown={handleMouseDown}
     >
-      <div
-        className="relative"
-        style={{
-          width: CANVAS_WIDTH,
-          height: CANVAS_HEIGHT,
-          border: "4px solid yellow",
-          background: "#222222",
-        }}
-      >
-        <canvas
-          ref={canvasRef}
-          style={{
-            width: "100%",
-            height: "100%",
-            display: "block",
-          }}
-        />
-
+      <div className="absolute inset-0 flex items-center justify-center">
         <div
-          className="absolute top-4 right-4"
           style={{
-            background: "rgba(255,255,255,0.8)",
-            padding: "4px 8px",
-            borderRadius: 8,
-            fontWeight: "bold",
-            color: "orange",
+            width: config.canvasWidth,
+            height: config.canvasHeight,
+            border: "4px solid #ffd800",
+            boxSizing: "content-box",
           }}
         >
-          SCORE: {score.toString().padStart(5, "0")}
+          <canvas
+            ref={canvasRef}
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "block",
+            }}
+          />
         </div>
+      </div>
+
+      <div className="absolute top-4 right-4 bg-white/80 px-3 py-1 rounded-lg font-bold text-orange-600">
+        SCORE: {currentScore.toString().padStart(5, "0")}
       </div>
     </div>
   );
