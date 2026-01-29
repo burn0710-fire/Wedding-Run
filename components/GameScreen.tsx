@@ -521,4 +521,4 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
   );
 };
 
-export default GameScreen;
+export default GameScreen
