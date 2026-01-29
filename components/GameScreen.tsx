@@ -38,6 +38,9 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
 
   const scrollRef = useRef({ bgFar: 0, bgMid: 0, ground: 0 });
 
+　console.log("config size:", config.canvasWidth, config.canvasHeight);
+
+
   // -----------------------------
   // 初期化（画像ロード & Spine 準備）
   // -----------------------------
@@ -255,28 +258,31 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
     }
   };
 
-  return (
+return (
+  <div
+    className="w-full h-full flex items-center justify-center"
+    onMouseDown={handleJump}
+    onTouchStart={handleJump}
+  >
     <div
-      className="w-full h-full flex items-center justify-center"
-      onMouseDown={handleJump}
-      onTouchStart={handleJump}
+      className="relative"
+      // ★ とりあえず固定サイズで強制
+      style={{ width: 800, height: 450, background: "#ffffff" }}
     >
-      <div
-        className="relative"
-        style={{ width: config.canvasWidth, height: config.canvasHeight }}
-      >
-        <canvas
-          ref={canvasRef}
-          width={config.canvasWidth}
-          height={config.canvasHeight}
-          className="block bg-white"
-        />
-        <div className="absolute top-4 right-4 bg-white/80 p-2 rounded-lg font-bold text-orange-600 shadow">
-          SCORE: {currentScore.toString().padStart(5, "0")}
-        </div>
+      <canvas
+        ref={canvasRef}
+        // ★ キャンバスの実サイズも固定
+        width={800}
+        height={450}
+        className="block"
+        style={{ border: "1px solid red" }} // どこにあるか見やすくする
+      />
+      <div className="absolute top-4 right-4 bg-white/80 p-2 rounded-lg font-bold text-orange-600 shadow">
+        SCORE: {currentScore.toString().padStart(5, "0")}
       </div>
     </div>
-  );
-};
+  </div>
+);
+
 
 export default GameScreen;
