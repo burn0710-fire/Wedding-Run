@@ -22,10 +22,7 @@ const loadImage = (src: string): Promise<HTMLImageElement | null> => {
     const img = new Image();
     img.src = src;
     img.onload = () => resolve(img);
-    img.onerror = () => {
-      console.error("Failed to load:", src);
-      resolve(null);
-    };
+    img.onerror = () => resolve(null);
   });
 };
 
@@ -35,6 +32,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
   const scoreRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(performance.now());
   const [currentScore, setCurrentScore] = useState(0);
+  const [isReady, setIsReady] = useState(false); // 読み込み完了フラグ
   
   const spineRef = useRef<{
     skeleton: spine.Skeleton;
@@ -66,15 +64,13 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
 
   const obstaclesRef = useRef<Obstacle[]>([]);
 
-  // Spine読み込み (エラー回避版)
   const loadSpineAssets = (canvas: HTMLCanvasElement) => {
     const baseUrl = "assets/spine/player/";
     const assetManager = new spine.AssetManager(baseUrl);
-
     assetManager.loadText("character.json");
     assetManager.loadTextureAtlas("character.atlas");
 
-    const checkLoading = () => {
+    const check = () => {
       if (assetManager.isLoadingComplete()) {
         const atlas = assetManager.get("character.atlas");
         const json = assetManager.get("character.json");
@@ -83,53 +79,54 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           const skeletonJson = new spine.SkeletonJson(atlasLoader);
           const skeletonData = skeletonJson.readSkeletonData(json);
           const skeleton = new spine.Skeleton(skeletonData);
-          
-          // setScale の代わりに直接 scale を代入
           skeleton.scaleX = 0.25;
           skeleton.scaleY = 0.25;
-
           const stateData = new spine.AnimationStateData(skeletonData);
           const state = new spine.AnimationState(stateData);
           const renderer = new spine.SkeletonRenderer(canvas.getContext("2d")!);
-
           state.setAnimation(0, "run", true);
           spineRef.current = { skeleton, state, renderer };
+          setIsReady(true); // Spineができたら準備OK
         }
       } else {
-        setTimeout(checkLoading, 100);
+        setTimeout(check, 100);
       }
     };
-    checkLoading();
+    check();
   };
 
-  const initGame = useCallback(async () => {
-    if (!canvasRef.current) return;
-    const canvas = canvasRef.current;
-    canvas.width = config.canvasWidth;
-    canvas.height = config.canvasHeight;
+  useEffect(() => {
+    const init = async () => {
+      if (!canvasRef.current) return;
+      const canvas = canvasRef.current;
+      canvas.width = config.canvasWidth;
+      canvas.height = config.canvasHeight;
 
-    loadSpineAssets(canvas);
+      loadSpineAssets(canvas);
 
-    const [bgFar, bgMid, ground, oGS, oGL, oFS, oFL] = await Promise.all([
-      loadImage(assetConfig.images.backgroundFar),
-      loadImage(assetConfig.images.backgroundMid),
-      loadImage(assetConfig.images.ground),
-      loadImage(assetConfig.images.obsGroundSmall),
-      loadImage(assetConfig.images.obsGroundLarge),
-      loadImage(assetConfig.images.obsFlySmall),
-      loadImage(assetConfig.images.obsFlyLarge),
-    ]);
-
-    assetsRef.current = { bgFar, bgMid, ground, obsGroundSmall: oGS, obsGroundLarge: oGL, obsFlySmall: oFS, obsFlyLarge: oFL };
+      // 画像の読み込み（パスが間違っていても止まらないようにする）
+      const [bgFar, bgMid, ground] = await Promise.all([
+        loadImage("assets/images/bg_far.png"),
+        loadImage("assets/images/bg_mid.png"),
+        loadImage("assets/images/ground.png"),
+      ]);
+      assetsRef.current.bgFar = bgFar;
+      assetsRef.current.bgMid = bgMid;
+      assetsRef.current.ground = ground;
+    };
+    init();
   }, []);
-
-  useEffect(() => { initGame(); }, [initGame]);
 
   const update = useCallback((time: number) => {
     const dt = (time - lastTimeRef.current) / 1000;
     lastTimeRef.current = time;
     const ctx = canvasRef.current?.getContext('2d');
-    if (!ctx) return;
+    
+    // 準備ができていない、または画像がない場合は描画をスキップしてエラーを防ぐ
+    if (!ctx || !isReady) {
+      requestRef.current = requestAnimationFrame(update);
+      return;
+    }
 
     if (playerRef.current.state !== PlayerState.CRASHED) {
       scoreRef.current += dt * 10;
@@ -155,10 +152,9 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     }
 
     ctx.clearRect(0, 0, config.canvasWidth, config.canvasHeight);
-    
-    // 背景描画
+
     const drawParallax = (img: HTMLImageElement | null, x: number, y: number, h: number) => {
-      if (!img) return;
+      if (!img) return; // 画像がない場合は無視する（エラーにならない）
       ctx.drawImage(img, -x, y, config.canvasWidth, h);
       ctx.drawImage(img, -x + config.canvasWidth, y, config.canvasWidth, h);
     };
@@ -167,7 +163,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     drawParallax(assetsRef.current.bgMid, scrollRef.current.bgMid, 0, config.canvasHeight);
     drawParallax(assetsRef.current.ground, scrollRef.current.ground, config.canvasHeight - config.groundHeight, config.groundHeight);
 
-    // キャラ描画
     if (spineRef.current) {
       const { skeleton, state, renderer } = spineRef.current;
       state.update(dt);
@@ -177,19 +172,8 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
       skeleton.y = playerRef.current.y + config.playerHeight;
       renderer.draw(skeleton);
     }
-
     requestRef.current = requestAnimationFrame(update);
-  }, []);
-
-  const jump = () => {
-    if (playerRef.current.jumpCount < config.maxJumps) {
-      playerRef.current.vy = config.jumpStrength;
-      playerRef.current.jumpCount++;
-      playerRef.current.state = PlayerState.JUMPING;
-      spineRef.current?.state.setAnimation(0, "jump", false);
-      spineRef.current?.state.addAnimation(0, "run", true, 0);
-    }
-  };
+  }, [isReady]);
 
   useEffect(() => {
     requestRef.current = requestAnimationFrame(update);
@@ -197,7 +181,15 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
   }, [update]);
 
   return (
-    <div className="w-full h-full relative bg-blue-100" onMouseDown={jump}>
+    <div className="w-full h-full relative bg-slate-200" onMouseDown={() => {
+      if (playerRef.current.jumpCount < config.maxJumps) {
+        playerRef.current.vy = config.jumpStrength;
+        playerRef.current.jumpCount++;
+        playerRef.current.state = PlayerState.JUMPING;
+        spineRef.current?.state.setAnimation(0, "jump", false);
+        spineRef.current?.state.addAnimation(0, "run", true, 0);
+      }
+    }}>
       <canvas ref={canvasRef} className="w-full h-full" />
       <div className="absolute top-4 right-4 bg-white/80 p-2 rounded-lg font-bold text-orange-600">
         SCORE: {currentScore.toString().padStart(5, '0')}
