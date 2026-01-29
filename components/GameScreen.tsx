@@ -9,9 +9,10 @@ import gameConfigData from "../config/game";
 
 const config = gameConfigData;
 
-// Vite の base 設定に追従してパスを作る
+// 画像パス
 const IMAGE_BASE = import.meta.env.BASE_URL + "assets/images/";
 
+// キャンバスサイズ
 const CANVAS_WIDTH = config.canvasWidth ?? 960;
 const CANVAS_HEIGHT = config.canvasHeight ?? 540;
 
@@ -20,6 +21,8 @@ const GameScreen: React.FC = () => {
   const requestRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(performance.now());
 
+  // スコアは ref で積算 → state に反映
+  const scoreRef = useRef(0);
   const [score, setScore] = useState(0);
 
   // 画像とスクロール量
@@ -93,24 +96,23 @@ const GameScreen: React.FC = () => {
       }
 
       if (isReady) {
-        // スコア
-        setScore((prev) => prev + Math.floor(dt * 60));
+        // スコア更新（1秒あたり 10 点）
+        scoreRef.current += dt * 10;
+        setScore(Math.floor(scoreRef.current));
 
         // スクロール値更新
+        const baseSpeed = config.initialSpeed ?? 4;
         scrollRef.current.bgFar =
-          (scrollRef.current.bgFar + (config.initialSpeed ?? 4) * 0.2) %
-          CANVAS_WIDTH;
+          (scrollRef.current.bgFar + baseSpeed * 0.2) % CANVAS_WIDTH;
         scrollRef.current.bgMid =
-          (scrollRef.current.bgMid + (config.initialSpeed ?? 4) * 0.5) %
-          CANVAS_WIDTH;
+          (scrollRef.current.bgMid + baseSpeed * 0.5) % CANVAS_WIDTH;
         scrollRef.current.ground =
-          (scrollRef.current.ground + (config.initialSpeed ?? 4)) %
-          CANVAS_WIDTH;
+          (scrollRef.current.ground + baseSpeed) % CANVAS_WIDTH;
       }
 
       // ===== 描画 =====
 
-      // 空の色（背景の抜けが分からない場合でも見えるように）
+      // 空の色（保険）
       ctx.fillStyle = "#87CEEB";
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
