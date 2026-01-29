@@ -255,6 +255,3 @@ export default function GameScreen({
     </div>
   );
 }
-
-
-export default GameScreen;
