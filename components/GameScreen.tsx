@@ -10,13 +10,12 @@ import gameConfigData from "../config/game";
 const config = gameConfigData;
 
 // GitHub Pages / ローカル両対応用のベースパス
-// （必要に応じて "/Wedding-Run/" などに固定してもOK）
 const base =
   (typeof import.meta !== "undefined" &&
     (import.meta as any).env.BASE_URL) ||
   "/Wedding-Run/";
 
-// プレイヤー状態（今はほぼ未使用だが将来拡張用）
+// プレイヤー状態（今はあまり使ってないけど拡張用）
 enum PlayerState {
   RUNNING = "RUNNING",
   JUMPING = "JUMPING",
@@ -34,8 +33,11 @@ type Enemy = {
 
 const ENEMY_WIDTH = 40;
 const ENEMY_HEIGHT = 40;
-const ENEMY_BASE_SPEED = 220; // 敵の基本速度(px/秒)
-const PLAYER_WIDTH = 50; // 当たり判定用。適当な幅を決め打ち
+const ENEMY_BASE_SPEED = 220;
+const PLAYER_WIDTH = 50;
+
+const CANVAS_W = 800;  // 表示サイズを固定
+const CANVAS_H = 450;
 
 const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   onGameOver,
@@ -74,6 +76,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   useEffect(() => {
     console.log("GameScreen mounted");
     console.log("spine.VERSION:", (spine as any).VERSION);
+    console.log("config:", config);
 
     isGameOverRef.current = false;
     scoreRef.current = 0;
@@ -83,7 +86,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
       if (!canvasRef.current) return;
       const canvas = canvasRef.current;
 
-      // Canvas 物理サイズ
+      // Canvas の物理サイズ
       canvas.width = config.canvasWidth;
       canvas.height = config.canvasHeight;
 
@@ -107,7 +110,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
           };
         });
 
-      // 背景画像を読み込み
+      // 背景画像
       assetsRef.current.bgFar = await loadImg(
         `${base}assets/images/bg_far.png`
       );
@@ -197,7 +200,6 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
     init();
 
     return () => {
-      // アンマウント時にアニメーション停止
       cancelAnimationFrame(requestRef.current);
     };
   }, []);
@@ -217,7 +219,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
 
       const playerX = 80;
 
-      // --- スコア & スクロール ---
+      // スコア & スクロール
       if (!isGameOverRef.current) {
         scoreRef.current += dt * 10;
         setCurrentScore(Math.floor(scoreRef.current));
@@ -236,7 +238,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
           config.initialSpeed * 1.0 * dt) %
         config.canvasWidth;
 
-      // --- プレイヤーの物理 ---
+      // プレイヤー物理
       const p = playerRef.current;
       p.vy += config.gravity;
       p.y += p.vy;
@@ -250,7 +252,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         p.jumpCount = 0;
       }
 
-      // --- 敵の移動 ---
+      // 敵移動
       enemiesRef.current.forEach((e) => {
         e.x -= e.speed * dt;
         if (e.x + e.width < 0) {
@@ -259,7 +261,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         }
       });
 
-      // --- 当たり判定 ---
+      // 当たり判定
       if (!isGameOverRef.current) {
         const playerHitBox = {
           x: playerX,
@@ -289,7 +291,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         }
       }
 
-      // --- 描画 ---
+      // 描画
       ctx.clearRect(
         0,
         0,
@@ -340,7 +342,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         config.groundHeight
       );
 
-      // デバッグ用プレイヤー四角（赤）
+      // プレイヤー（赤四角デバッグ）
       ctx.fillStyle = "red";
       ctx.fillRect(
         playerX,
@@ -349,7 +351,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         config.playerHeight
       );
 
-      // 敵（青い四角）
+      // 敵（青四角）
       ctx.fillStyle = "blue";
       enemiesRef.current.forEach((e) => {
         ctx.fillRect(
@@ -360,7 +362,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         );
       });
 
-      // Spine キャラ描画（上から被せる）
+      // Spine
       if (spineRef.current) {
         const { skeleton, state, renderer } =
           spineRef.current;
@@ -377,14 +379,12 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
     [isReady, onGameOver]
   );
 
-  // requestAnimationFrame 開始
   useEffect(() => {
     requestRef.current = requestAnimationFrame(update);
     return () =>
       cancelAnimationFrame(requestRef.current);
   }, [update]);
 
-  // クリックでジャンプ
   const handleMouseDown = () => {
     if (isGameOverRef.current) return;
 
@@ -416,14 +416,16 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
       <div className="absolute inset-0 flex items-center justify-center">
         <div
           style={{
-            width: config.canvasWidth,
-            height: config.canvasHeight,
+            width: CANVAS_W,   // ここを固定値に
+            height: CANVAS_H,
             border: "4px solid #ffd800",
             boxSizing: "content-box",
           }}
         >
           <canvas
             ref={canvasRef}
+            width={CANVAS_W}
+            height={CANVAS_H}
             style={{
               width: "100%",
               height: "100%",
