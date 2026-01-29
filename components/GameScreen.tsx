@@ -255,28 +255,42 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
     }
   };
 
-  return (
-    <div
-      className="w-screen h-screen flex items-center justify-center bg-slate-100"
-      onMouseDown={handleJump}
-      onTouchStart={handleJump}
-    >
-      {/* ここが 800x450 の固定ゲーム画面 */}
+    return (
+    <div className="w-screen h-screen flex items-center justify-center bg-slate-100">
+      {/* ゲーム画面の実サイズ枠 */}
       <div
+        className="relative bg-white shadow-lg rounded-md overflow-hidden"
         style={{
-          position: "relative",
-          width: `${CANVAS_WIDTH}px`,
-          height: `${CANVAS_HEIGHT}px`,
-          border: "4px solid red",
-          overflow: "hidden",
-          background: "#ffffff",
+          width: config.canvasWidth,   // 例: 800
+          height: config.canvasHeight, // 例: 480
+        }}
+        onMouseDown={() => {
+          if (playerRef.current.jumpCount < config.maxJumps) {
+            playerRef.current.vy = config.jumpStrength;
+            playerRef.current.jumpCount++;
+            if (spineRef.current) {
+              spineRef.current.state.setAnimation(0, "jump", false);
+              spineRef.current.state.addAnimation(0, "run", true, 0);
+            }
+          }
         }}
       >
+        {/* 実際に描画するキャンバス */}
         <canvas
           ref={canvasRef}
-          style={{ width: "100%", height: "100%", display: "block" }}
+          // DOM 属性としてサイズを固定
+          width={config.canvasWidth}
+          height={config.canvasHeight}
+          className="block"
+          style={{
+            width: "100%",
+            height: "100%",
+            display: "block",
+          }}
         />
-        <div className="absolute top-3 right-3 bg-white/80 px-3 py-1 rounded-lg font-bold text-orange-600 text-sm">
+
+        {/* スコア表示（ゲーム枠の中の右上） */}
+        <div className="absolute top-4 right-4 bg-white/80 px-3 py-1 rounded-lg font-bold text-orange-600 text-sm">
           SCORE: {currentScore.toString().padStart(5, "0")}
         </div>
       </div>
