@@ -1,3 +1,4 @@
+console.log((spine as any).VERSION);
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as spine from "@esotericsoftware/spine-canvas";
 import gameConfigData from '../config/game';
@@ -55,23 +56,9 @@ const atlas = assetManager.get("char_v2.atlas");
 const json = assetManager.get("char_v2.json");
 const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
 const skeletonJson = new spine.SkeletonJson(atlasLoader);
-
-// ★ 物理データを読み飛ばす（physics is undefined 対策その1）
-(skeletonJson as any).readPhysics = () => {};
-(skeletonJson as any).readPhysicsConstraint = () => {};
-
 const skeletonData = skeletonJson.readSkeletonData(json);
-const skeleton = new spine.Skeleton(skeletonData);  // ← ここは必ず生かす
 
-// ★ skeleton.physics が無いときだけダミーを設定（対策その2）
-const skAny = skeleton as any;
-if (!skAny.physics) {
-  skAny.physics = {
-    update: () => {}  // 引数は無視で何もしない
-  };
-}
-
-skeleton.scaleX = skeleton.scaleY = 0.25;
+const skeleton = new spine.Skeleton(skeletonData);
 
 const state = new spine.AnimationState(new spine.AnimationStateData(skeletonData));
 state.setAnimation(0, "run", true);
