@@ -1,7 +1,7 @@
 // config/assets.ts
 
 // 画像のベースパス（GitHub Pages で /Wedding-Run/ 配下に出す前提）
-const IMAGE_BASE = "/assets/images";
+const IMAGE_BASE = "/Wedding-Run/assets/images";
 
 const assetConfig = {
   BACKGROUND: {
@@ -64,7 +64,7 @@ const assetConfig = {
       },
     },
 
-    // ★ここが今回追加したスプライトアニメ用設定
+    // ★ 画像３枚でアニメするスプライト設定
     SPRITES: {
       RUN_1: {
         path: `${IMAGE_BASE}/chara_1.png`,
@@ -76,7 +76,7 @@ const assetConfig = {
         width: 647,
         height: 453,
       },
-      // JUMP は chara_1 をそのまま使う想定
+      // JUMP は chara_1 をそのまま使う
       JUMP: {
         path: `${IMAGE_BASE}/chara_1.png`,
         width: 647,
