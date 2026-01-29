@@ -1,10 +1,14 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+// components/GameScreen.tsx
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import * as spine from "@esotericsoftware/spine-canvas";
 import gameConfigData from "../config/game";
 
 const config = gameConfigData;
-// Vite のベースパス対応
-const base = (import.meta as any).env.BASE_URL || "/";
 
 enum PlayerState {
   RUNNING = "RUNNING",
@@ -12,22 +16,34 @@ enum PlayerState {
   CRASHED = "CRASHED",
 }
 
+type SpineRefs = {
+  skeleton: any;
+  state: any;
+  renderer: any;
+} | null;
+
 const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   onGameOver,
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const requestRef = useRef<number>(0);
   const scoreRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(performance.now());
+
   const [currentScore, setCurrentScore] = useState(0);
   const [isReady, setIsReady] = useState(false);
 
-  const spineRef = useRef<any>(null);
+  const spineRef = useRef<SpineRefs>(null);
+
   const assetsRef = useRef<{
     bgFar: HTMLImageElement | null;
     bgMid: HTMLImageElement | null;
     ground: HTMLImageElement | null;
-  }>({ bgFar: null, bgMid: null, ground: null });
+  }>({
+    bgFar: null,
+    bgMid: null,
+    ground: null,
+  });
 
   const playerRef = useRef({
     y: config.canvasHeight - config.groundHeight - config.playerHeight,
@@ -36,24 +52,31 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
     jumpCount: 0,
   });
 
-  const scrollRef = useRef({ bgFar: 0, bgMid: 0, ground: 0 });
+  const scrollRef = useRef({
+    bgFar: 0,
+    bgMid: 0,
+    ground: 0,
+  });
 
-　console.log("config size:", config.canvasWidth, config.canvasHeight);
-
-
-  // -----------------------------
-  // 初期化（画像ロード & Spine 準備）
-  // -----------------------------
+  // --------------------------------------------------
+  // 初期化（画像ロード & Spine セットアップ）
+  // --------------------------------------------------
   useEffect(() => {
     console.log("GameScreen mounted");
     console.log("spine.VERSION:", (spine as any).VERSION);
     console.log("spine.AssetManager:", (spine as any).AssetManager);
 
     const init = async () => {
-      if (!canvasRef.current) return;
       const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      // キャンバスの実サイズ
       canvas.width = config.canvasWidth;
       canvas.height = config.canvasHeight;
+
+      const base = import.meta.env.BASE_URL || "/";
+      const imgBase = `${base}assets/images/`;
+      const spineBase = `${base}assets/spine/player/`;
 
       const loadImg = (src: string) =>
         new Promise<HTMLImageElement | null>((resolve) => {
@@ -70,26 +93,15 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         });
 
       // 背景画像読み込み
-      assetsRef.current.bgFar = await loadImg(
-        `${base}assets/images/bg_far.png`
-      );
-      assetsRef.current.bgMid = await loadImg(
-        `${base}assets/images/bg_mid.png`
-      );
-      assetsRef.current.ground = await loadImg(
-        `${base}assets/images/ground.png`
-      );
+      assetsRef.current.bgFar = await loadImg(`${imgBase}bg_far.png`);
+      assetsRef.current.bgMid = await loadImg(`${imgBase}bg_mid.png`);
+      assetsRef.current.ground = await loadImg(`${imgBase}ground.png`);
 
-      // Spine のアセットローダーを作成
-      const SpineAssetManager = (spine as any).AssetManager;
-      const SpineDownloader = (spine as any).Downloader;
+      // Spine アセット
+      const AssetManager = (spine as any).AssetManager;
+      const Downloader = (spine as any).Downloader;
 
-      const assetManager = new SpineAssetManager(
-        `${base}assets/spine/player/`,
-        new SpineDownloader()
-      );
-
-      // プレイヤー用 Spine データを読み込み
+      const assetManager = new AssetManager(spineBase, new Downloader());
       assetManager.loadText("char_v2.json");
       assetManager.loadTextureAtlas("char_v2.atlas");
 
@@ -100,29 +112,32 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
             assetManager.get("char_v2.atlas"),
             assetManager.get("char_v2.json")
           );
+
           try {
             const atlas = assetManager.get("char_v2.atlas");
             const json = assetManager.get("char_v2.json");
 
-            const atlasLoader = new (spine as any).AtlasAttachmentLoader(atlas);
-            const skeletonJson = new (spine as any).SkeletonJson(atlasLoader);
+            const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
+            const skeletonJson = new spine.SkeletonJson(atlasLoader);
             const skeletonData = skeletonJson.readSkeletonData(json);
 
-            const skeleton = new (spine as any).Skeleton(skeletonData);
-            const state = new (spine as any).AnimationState(
-              new (spine as any).AnimationStateData(skeletonData)
+            const skeleton = new spine.Skeleton(skeletonData);
+            const state = new spine.AnimationState(
+              new spine.AnimationStateData(skeletonData)
             );
             state.setAnimation(0, "run", true);
 
-            spineRef.current = {
-              skeleton,
-              state,
-              renderer: new (spine as any).SkeletonRenderer(
-                canvas.getContext("2d")!
-              ),
-            };
+            const ctx = canvas.getContext("2d");
+            if (!ctx) {
+              console.error("2D context not found");
+              return;
+            }
+
+            const renderer = new spine.SkeletonRenderer(ctx as any);
+
+            spineRef.current = { skeleton, state, renderer };
           } catch (e) {
-            console.warn("Spine の初期化エラー:", e);
+            console.warn("Spine 初期化エラー:", e);
           }
 
           setIsReady(true);
@@ -137,16 +152,16 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
     init();
   }, []);
 
-  // -----------------------------
-  // 毎フレーム更新 & 描画
-  // -----------------------------
+  // --------------------------------------------------
+  // メインループ
+  // --------------------------------------------------
   const update = useCallback(
     (time: number) => {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext("2d");
       const dt = (time - lastTimeRef.current) / 1000;
       lastTimeRef.current = time;
 
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext("2d");
       if (!ctx || !isReady) {
         requestRef.current = requestAnimationFrame(update);
         return;
@@ -166,19 +181,19 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         (scrollRef.current.ground + config.initialSpeed) %
         config.canvasWidth;
 
-      // プレイヤーの簡易物理
+      // プレイヤー物理
       const p = playerRef.current;
       p.vy += config.gravity;
       p.y += p.vy;
-      const gY =
+      const groundY =
         config.canvasHeight - config.groundHeight - config.playerHeight;
-      if (p.y > gY) {
-        p.y = gY;
+      if (p.y > groundY) {
+        p.y = groundY;
         p.vy = 0;
         p.jumpCount = 0;
       }
 
-      // 画面クリア
+      // 描画クリア
       ctx.clearRect(0, 0, config.canvasWidth, config.canvasHeight);
 
       const drawLoop = (
@@ -198,7 +213,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         );
       };
 
-      // 背景 & 地面
+      // 背景
       drawLoop(
         assetsRef.current.bgFar,
         scrollRef.current.bgFar,
@@ -218,7 +233,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         config.groundHeight
       );
 
-      // ★テスト用：赤い四角（動作確認用。邪魔なら消してOK）
+      // ★テスト用：赤い四角
       ctx.fillStyle = "red";
       ctx.fillRect(10, 10, 80, 80);
 
@@ -228,12 +243,13 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         state.update(dt);
         state.apply(skeleton);
         skeleton.updateWorldTransform();
+
         skeleton.x = 80;
         skeleton.y = p.y + config.playerHeight;
+
         renderer.draw(skeleton);
       }
 
-      // 次フレーム予約
       requestRef.current = requestAnimationFrame(update);
     },
     [isReady]
@@ -244,45 +260,48 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
     return () => cancelAnimationFrame(requestRef.current);
   }, [update]);
 
-  // -----------------------------
-  // JSX（描画部分）
-  // -----------------------------
+  // --------------------------------------------------
+  // 入力（ジャンプ）
+  // --------------------------------------------------
   const handleJump = () => {
-    if (playerRef.current.jumpCount < config.maxJumps) {
-      playerRef.current.vy = config.jumpStrength;
-      playerRef.current.jumpCount++;
-      if (spineRef.current) {
-        spineRef.current.state.setAnimation(0, "jump", false);
-        spineRef.current.state.addAnimation(0, "run", true, 0);
-      }
+    const p = playerRef.current;
+    if (p.jumpCount >= config.maxJumps) return;
+
+    p.vy = config.jumpStrength;
+    p.jumpCount++;
+
+    if (spineRef.current) {
+      spineRef.current.state.setAnimation(0, "jump", false);
+      spineRef.current.state.addAnimation(0, "run", true, 0);
     }
   };
 
-return (
-  <div
-    className="w-full h-full flex items-center justify-center"
-    onMouseDown={handleJump}
-    onTouchStart={handleJump}
-  >
+  // --------------------------------------------------
+  // JSX
+  // --------------------------------------------------
+  return (
     <div
-      className="relative"
-      // ★ とりあえず固定サイズで強制
-      style={{ width: 800, height: 450, background: "#ffffff" }}
+      className="w-full h-full flex items-center justify-center"
+      onMouseDown={handleJump}
+      onTouchStart={handleJump}
     >
-      <canvas
-        ref={canvasRef}
-        // ★ キャンバスの実サイズも固定
-        width={800}
-        height={450}
-        className="block"
-        style={{ border: "1px solid red" }} // どこにあるか見やすくする
-      />
-      <div className="absolute top-4 right-4 bg-white/80 p-2 rounded-lg font-bold text-orange-600 shadow">
-        SCORE: {currentScore.toString().padStart(5, "0")}
+      <div
+        className="relative"
+        style={{ width: 800, height: 450, background: "#ffffff" }}
+      >
+        <canvas
+          ref={canvasRef}
+          width={800}
+          height={450}
+          className="block"
+          style={{ border: "1px solid red" }}
+        />
+        <div className="absolute top-4 right-4 bg-white/80 p-2 rounded-lg font-bold text-orange-600 shadow">
+          SCORE: {currentScore.toString().padStart(5, "0")}
+        </div>
       </div>
     </div>
-  </div>
-);
-
+  );
+};
 
 export default GameScreen;
