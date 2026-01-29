@@ -51,23 +51,37 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({ onGameO
       const check = () => {
         if (assetManager.isLoadingComplete()) {
           try {
-            const atlas = assetManager.get("char_v2.atlas");
-            const json = assetManager.get("char_v2.json");
-            const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
-            const skeletonJson = new spine.SkeletonJson(atlasLoader);
-            
-            // ★物理エラー(physics is undefined)を強制回避
-            (skeletonJson as any).readPhysics = () => {}; 
-            (skeletonJson as any).readPhysicsConstraint = () => {}; 
+const atlas = assetManager.get("char_v2.atlas");
+const json = assetManager.get("char_v2.json");
+const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
+const skeletonJson = new spine.SkeletonJson(atlasLoader);
 
-            const skeletonData = skeletonJson.readSkeletonData(json);
-            const skeleton = new spine.Skeleton(skeletonData);
-            skeleton.scaleX = skeleton.scaleY = 0.25;
-            
-            const state = new spine.AnimationState(new spine.AnimationStateData(skeletonData));
-            state.setAnimation(0, "run", true);
-            
-            spineRef.current = { skeleton, state, renderer: new spine.SkeletonRenderer(canvas.getContext("2d")!) };
+// ★ 物理データを読み飛ばす（physics is undefined 対策その1）
+(skeletonJson as any).readPhysics = () => {};
+(skeletonJson as any).readPhysicsConstraint = () => {};
+
+const skeletonData = skeletonJson.readSkeletonData(json);
+const skeleton = new spine.Skeleton(skeletonData);  // ← ここは必ず生かす
+
+// ★ skeleton.physics が無いときだけダミーを設定（対策その2）
+const skAny = skeleton as any;
+if (!skAny.physics) {
+  skAny.physics = {
+    update: () => {}  // 引数は無視で何もしない
+  };
+}
+
+skeleton.scaleX = skeleton.scaleY = 0.25;
+
+const state = new spine.AnimationState(new spine.AnimationStateData(skeletonData));
+state.setAnimation(0, "run", true);
+
+spineRef.current = {
+  skeleton,
+  state,
+  renderer: new spine.SkeletonRenderer(canvas.getContext("2d")!)
+};
+
           } catch (e) {
             console.warn("Spineの初期化エラー:", e);
           }
