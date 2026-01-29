@@ -1,6 +1,3 @@
-console.log((spine as any).VERSION);
-console.log('GameScreen mounted');
-
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as spine from "@esotericsoftware/spine-canvas";
 import gameConfigData from '../config/game';
@@ -34,6 +31,9 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({ onGameO
   const scrollRef = useRef({ bgFar: 0, bgMid: 0, ground: 0 });
 
   useEffect(() => {
+    console.log('GameScreen mounted');
+    console.log('spine version:', (spine as any).VERSION);
+    
     const init = async () => {
       if (!canvasRef.current) return;
       const canvas = canvasRef.current;
