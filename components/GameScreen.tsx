@@ -22,7 +22,6 @@ type Enemy = {
 const CANVAS_W = 800;
 const CANVAS_H = 450;
 
-// ===== Dino Run っぽいシンプル物理パラメータ =====
 const GROUND_HEIGHT = 80;
 const PLAYER_WIDTH = 50;
 const PLAYER_HEIGHT = 80;
@@ -30,19 +29,24 @@ const PLAYER_HEIGHT = 80;
 const ENEMY_WIDTH = 40;
 const ENEMY_HEIGHT = 60;
 
-// 重力とジャンプ。2段ジャンプをやめるので
-// 以前と同じくらいで、画面外に飛び出さないはず
+// ==== 物理パラメータ ====
+// もとのジャンプよりかなり低く（約 1/20）
 const GRAVITY = 1800;
-const JUMP_STRENGTH = -700;
+const JUMP_STRENGTH = -180; // ここを上げ下げで微調整
 
-// ★ 一段ジャンプだけにする
 const MAX_JUMPS = 1;
 
-// 敵は常に一定スピード
-const ENEMY_SPEED = 260;
+// ==== 敵のスピード & 出現タイミング ====
+// 基本スピード
+const ENEMY_SPEED_START = 220;
+const ENEMY_SPEED_MAX = 700;
+// 時間経過でだんだん速くなる
+const ENEMY_SPEED_GROWTH = 40; // 毎秒 +40 くらい
 
-// 敵の出現間隔（ピクセル）
-const ENEMY_SPACING = 280;
+// 出現間隔（秒）
+const SPAWN_INTERVAL_START = 1.6; // 最初はゆっくり
+const SPAWN_INTERVAL_MIN = 0.6;   // ここまで短くなる
+const SPAWN_INTERVAL_DECAY = 0.08; // 毎秒 0.08 ずつ短く
 
 const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   onGameOver,
@@ -64,15 +68,16 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   const enemiesRef = useRef<Enemy[]>([]);
   const isGameOverRef = useRef(false);
 
-  // 右端に一番近い敵の x を返す
-  const getRightmostEnemyX = () => {
-    if (enemiesRef.current.length === 0) return CANVAS_W;
-    return Math.max(...enemiesRef.current.map((e) => e.x));
-  };
+  // 敵スピード & 出現間隔の変化用
+  const enemySpeedRef = useRef(ENEMY_SPEED_START);
+  const spawnIntervalRef = useRef(SPAWN_INTERVAL_START);
+  const spawnTimerRef = useRef(0);
+
+  const enemyGroundY = CANVAS_H - GROUND_HEIGHT - ENEMY_HEIGHT;
 
   // 初期化
   useEffect(() => {
-    console.log("Minimal Dino-like GameScreen mounted (no config)");
+    console.log("Dino-like GameScreen mounted");
 
     const canvas = canvasRef.current;
     if (canvas) {
@@ -80,32 +85,10 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
       canvas.height = CANVAS_H;
     }
 
-    const enemyGroundY = CANVAS_H - GROUND_HEIGHT - ENEMY_HEIGHT;
-
-    // ★ 等間隔で3体並べておく
-    enemiesRef.current = [
-      {
-        x: CANVAS_W + 200,
-        y: enemyGroundY,
-        width: ENEMY_WIDTH,
-        height: ENEMY_HEIGHT,
-        speed: ENEMY_SPEED,
-      },
-      {
-        x: CANVAS_W + 200 + ENEMY_SPACING,
-        y: enemyGroundY,
-        width: ENEMY_WIDTH,
-        height: ENEMY_HEIGHT,
-        speed: ENEMY_SPEED,
-      },
-      {
-        x: CANVAS_W + 200 + ENEMY_SPACING * 2,
-        y: enemyGroundY,
-        width: ENEMY_WIDTH,
-        height: ENEMY_HEIGHT,
-        speed: ENEMY_SPEED,
-      },
-    ];
+    enemiesRef.current = [];
+    enemySpeedRef.current = ENEMY_SPEED_START;
+    spawnIntervalRef.current = SPAWN_INTERVAL_START;
+    spawnTimerRef.current = 0.5; // 最初の敵は0.5秒後くらい
 
     scoreRef.current = 0;
     setCurrentScore(0);
@@ -130,7 +113,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
 
       const playerX = 80;
 
-      // スコア更新
+      // スコア
       if (!isGameOverRef.current) {
         scoreRef.current += dt * 10;
         setCurrentScore(Math.floor(scoreRef.current));
@@ -145,21 +128,49 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
       if (p.y > groundY) {
         p.y = groundY;
         p.vy = 0;
-        p.jumpCount = 0; // 地面に着地したらジャンプ回数リセット
+        p.jumpCount = 0;
       }
 
-      // ===== 敵移動 =====
+      // ===== 敵スピード & 出現間隔を時間で変化 =====
+      enemySpeedRef.current = Math.min(
+        ENEMY_SPEED_MAX,
+        enemySpeedRef.current + ENEMY_SPEED_GROWTH * dt
+      );
+      spawnIntervalRef.current = Math.max(
+        SPAWN_INTERVAL_MIN,
+        spawnIntervalRef.current - SPAWN_INTERVAL_DECAY * dt
+      );
+
+      // ===== 敵出現（ランダム間隔） =====
+      spawnTimerRef.current -= dt;
+      if (!isGameOverRef.current && spawnTimerRef.current <= 0) {
+        enemiesRef.current.push({
+          x: CANVAS_W + 40,
+          y: enemyGroundY,
+          width: ENEMY_WIDTH,
+          height: ENEMY_HEIGHT,
+          speed: enemySpeedRef.current,
+        });
+
+        // 間隔 ±30% くらいのランダム
+        const base = spawnIntervalRef.current;
+        spawnTimerRef.current = base * (0.7 + Math.random() * 0.6);
+      }
+
+      // ===== 敵の移動 =====
       enemiesRef.current.forEach((e) => {
+        // 既存の敵も少しずつ加速させる
+        e.speed = Math.min(
+          ENEMY_SPEED_MAX,
+          e.speed + ENEMY_SPEED_GROWTH * dt
+        );
         e.x -= e.speed * dt;
       });
 
-      // 画面外に出た敵を、右端 + ENEMY_SPACING の位置に再配置
-      const rightmostX = getRightmostEnemyX();
-      enemiesRef.current.forEach((e) => {
-        if (e.x + e.width < 0) {
-          e.x = rightmostX + ENEMY_SPACING;
-        }
-      });
+      // 画面外の敵は削除
+      enemiesRef.current = enemiesRef.current.filter(
+        (e) => e.x + e.width > 0
+      );
 
       // ===== 当たり判定 =====
       if (!isGameOverRef.current) {
@@ -178,7 +189,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
             playerHitBox.y + playerHitBox.h > e.y;
 
           if (hit) {
-            console.log("HIT (dino-like)!");
+            console.log("HIT!");
             isGameOverRef.current = true;
             cancelAnimationFrame(requestRef.current);
             onGameOver(Math.floor(scoreRef.current));
@@ -224,7 +235,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   const handleMouseDown = () => {
     if (isGameOverRef.current) return;
 
-    // ★ 単純に「地面からの一段ジャンプ」だけ
+    // 一段ジャンプのみ
     if (playerRef.current.jumpCount < MAX_JUMPS) {
       playerRef.current.vy = JUMP_STRENGTH;
       playerRef.current.jumpCount++;
