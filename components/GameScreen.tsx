@@ -45,38 +45,37 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({ onGameO
       assetsRef.current.bgMid = await loadImg("assets/images/bg_mid.png");
       assetsRef.current.ground = await loadImg("assets/images/ground.png");
 
-      // Spineの読み込み
-      const assetManager = new spine.AssetManager("assets/spine/player/");
-      assetManager.loadText("character.json");
-      assetManager.loadTextureAtlas("character.atlas");
+// Spine読み込み部分（check関数の中身）
+const check = () => {
+  if (assetManager.isLoadingComplete()) {
+    const atlas = assetManager.get("character.atlas");
+    const json = assetManager.get("character.json");
+    
+    const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
+    const skeletonJson = new spine.SkeletonJson(atlasLoader);
+    
+    // ★物理エラー(physics is undefined)を強制的に黙らせる魔法の2行
+    (skeletonJson as any).readPhysics = () => {}; 
+    (skeletonJson as any).readPhysicsConstraint = () => {}; 
 
-      const check = () => {
-        if (assetManager.isLoadingComplete()) {
-          const atlas = assetManager.get("character.atlas");
-          const json = assetManager.get("character.json");
-          const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
-          const skeletonJson = new spine.SkeletonJson(atlasLoader);
-          
-          // ★物理エラー回避の呪文：物理演算をダミーで上書きします
-          (skeletonJson as any).readPhysics = () => {}; 
-          
-          const skeletonData = skeletonJson.readSkeletonData(json);
-          const skeleton = new spine.Skeleton(skeletonData);
-          skeleton.scaleX = skeleton.scaleY = 0.25;
-          
-          const state = new spine.AnimationState(new spine.AnimationStateData(skeletonData));
-          state.setAnimation(0, "run", true);
-          
-          spineRef.current = { skeleton, state, renderer: new spine.SkeletonRenderer(canvas.getContext("2d")!) };
-          setIsReady(true);
-        } else {
-          setTimeout(check, 100);
-        }
-      };
-      check();
-    };
-    init();
-  }, []);
+    try {
+      const skeletonData = skeletonJson.readSkeletonData(json);
+      const skeleton = new spine.Skeleton(skeletonData);
+      skeleton.scaleX = skeleton.scaleY = 0.25;
+      
+      const state = new spine.AnimationState(new spine.AnimationStateData(skeletonData));
+      state.setAnimation(0, "run", true);
+      
+      spineRef.current = { skeleton, state, renderer: new spine.SkeletonRenderer(canvas.getContext("2d")!) };
+    } catch (e) {
+      console.warn("Spineの初期化でエラーが出ましたが、背景表示を優先します:", e);
+    }
+    
+    setIsReady(true); // 何があっても描画を開始させる
+  } else {
+    setTimeout(check, 100);
+  }
+};
 
   const update = useCallback((time: number) => {
     const dt = (time - lastTimeRef.current) / 1000;
