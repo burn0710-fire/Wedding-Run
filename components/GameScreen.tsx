@@ -6,7 +6,7 @@ import { GameConfig, Obstacle, ObstacleType } from '../types';
 
 const config: GameConfig = gameConfigData;
 
-// エラーの原因になっていた PlayerState をここで定義
+// PlayerStateを内部で定義
 enum PlayerState {
   RUNNING = 'RUNNING',
   JUMPING = 'JUMPING',
@@ -22,10 +22,7 @@ const loadImage = (src: string): Promise<HTMLImageElement | null> => {
     const img = new Image();
     img.src = src;
     img.onload = () => resolve(img);
-    img.onerror = () => {
-      console.warn(`Failed to load image: ${src}`);
-      resolve(null);
-    };
+    img.onerror = () => resolve(null);
   });
 };
 
@@ -68,28 +65,38 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
 
   const obstaclesRef = useRef<Obstacle[]>([]);
 
-  const loadSpineAssets = async (canvas: HTMLCanvasElement) => {
+  // 読み込み部分を「waitForAssets」を使わない方式に修正
+  const loadSpineAssets = (canvas: HTMLCanvasElement) => {
     const baseUrl = "assets/spine/player/";
     const assetManager = new spine.AssetManager(baseUrl);
+
     assetManager.loadText("character.json");
     assetManager.loadTextureAtlas("character.atlas");
-    await assetManager.waitForAssets();
 
-    const atlas = assetManager.get("character.atlas");
-    const json = assetManager.get("character.json");
-    if (!atlas || !json) return;
+    // 読み込み完了を監視するループ
+    const checkAssets = () => {
+      if (assetManager.isLoadingComplete()) {
+        const atlas = assetManager.get("character.atlas");
+        const json = assetManager.get("character.json");
 
-    const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
-    const skeletonJson = new spine.SkeletonJson(atlasLoader);
-    const skeletonData = skeletonJson.readSkeletonData(json);
-    const skeleton = new spine.Skeleton(skeletonData);
-    const stateData = new spine.AnimationStateData(skeletonData);
-    const state = new spine.AnimationState(stateData);
-    const renderer = new spine.SkeletonRenderer(canvas.getContext("2d")!);
+        if (atlas && json) {
+          const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
+          const skeletonJson = new spine.SkeletonJson(atlasLoader);
+          const skeletonData = skeletonJson.readSkeletonData(json);
+          const skeleton = new spine.Skeleton(skeletonData);
+          const stateData = new spine.AnimationStateData(skeletonData);
+          const state = new spine.AnimationState(stateData);
+          const renderer = new spine.SkeletonRenderer(canvas.getContext("2d")!);
 
-    skeleton.setScale(0.25, 0.25); 
-    state.setAnimation(0, "run", true);
-    spineRef.current = { skeleton, state, renderer };
+          skeleton.setScale(0.25, 0.25); 
+          state.setAnimation(0, "run", true);
+          spineRef.current = { skeleton, state, renderer };
+        }
+      } else {
+        setTimeout(checkAssets, 100);
+      }
+    };
+    checkAssets();
   };
 
   const setupCanvas = (canvas: HTMLCanvasElement) => {
@@ -100,8 +107,11 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
   const initGame = useCallback(async () => {
     if (!canvasRef.current) return;
     setupCanvas(canvasRef.current);
-    await loadSpineAssets(canvasRef.current);
 
+    // Spineの読み込み開始（待機せずに次へ進む）
+    loadSpineAssets(canvasRef.current);
+
+    // 画像アセットの読み込み
     const [bgFar, bgMid, ground, oGS, oGL, oFS, oFL] = await Promise.all([
       loadImage(assetConfig.images.backgroundFar),
       loadImage(assetConfig.images.backgroundMid),
@@ -112,10 +122,16 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
       loadImage(assetConfig.images.obsFlyLarge),
     ]);
 
-    assetsRef.current = { bgFar, bgMid, ground, obsGroundSmall: oGS, obsGroundLarge: oGL, obsFlySmall: oFS, obsFlyLarge: oFL };
+    assetsRef.current = {
+      bgFar, bgMid, ground,
+      obsGroundSmall: oGS, obsGroundLarge: oGL,
+      obsFlySmall: oFS, obsFlyLarge: oFL,
+    };
   }, []);
 
-  useEffect(() => { initGame(); }, [initGame]);
+  useEffect(() => {
+    initGame();
+  }, [initGame]);
 
   const spawnObstacle = useCallback(() => {
     const types: ObstacleType[] = ['GROUND_SMALL', 'GROUND_LARGE', 'FLY_SMALL', 'FLY_LARGE'];
@@ -137,12 +153,16 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     const dt = (time - lastTimeRef.current) / 1000;
     lastTimeRef.current = time;
     const ctx = canvasRef.current?.getContext('2d');
-    if (!ctx || !canvasRef.current) return;
+    if (!ctx || !canvasRef.current) {
+      requestRef.current = requestAnimationFrame(update);
+      return;
+    }
 
     if (playerRef.current.state !== PlayerState.CRASHED) {
       scoreRef.current += dt * 10;
       setCurrentScore(Math.floor(scoreRef.current));
       scrollRef.current.speed = config.initialSpeed + (scoreRef.current / 100);
+
       scrollRef.current.bgFar = (scrollRef.current.bgFar + scrollRef.current.speed * 0.2) % config.canvasWidth;
       scrollRef.current.bgMid = (scrollRef.current.bgMid + scrollRef.current.speed * 0.5) % config.canvasWidth;
       scrollRef.current.ground = (scrollRef.current.ground + scrollRef.current.speed) % config.canvasWidth;
@@ -179,11 +199,13 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     }
 
     ctx.clearRect(0, 0, config.canvasWidth, config.canvasHeight);
+
     const drawParallax = (img: HTMLImageElement | null, x: number, y: number, h: number) => {
       if (!img) return;
       ctx.drawImage(img, -x, y, config.canvasWidth, h);
       ctx.drawImage(img, -x + config.canvasWidth, y, config.canvasWidth, h);
     };
+
     drawParallax(assetsRef.current.bgFar, scrollRef.current.bgFar, 0, config.canvasHeight);
     drawParallax(assetsRef.current.bgMid, scrollRef.current.bgMid, 0, config.canvasHeight);
     drawParallax(assetsRef.current.ground, scrollRef.current.ground, config.canvasHeight - config.groundHeight, config.groundHeight);
@@ -205,6 +227,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
       skeleton.y = playerRef.current.y + config.playerHeight;
       renderer.draw(skeleton);
     }
+
     requestRef.current = requestAnimationFrame(update);
   }, [onGameOver, spawnObstacle]);
 
