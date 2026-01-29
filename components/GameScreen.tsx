@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+// ↓ここが重要！Spineを読み込む1行を追加しました
 import * as spine from "@esotericsoftware/spine-canvas";
 import gameConfigData from '../config/game';
 import assetConfig from '../config/assets';
@@ -29,6 +30,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
   const lastTimeRef = useRef<number>(performance.now());
   const [currentScore, setCurrentScore] = useState(0);
   
+  // Spineの状態を保持するRef
   const spineRef = useRef<{
     skeleton: spine.Skeleton;
     state: spine.AnimationState;
@@ -61,13 +63,11 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
 
   const obstaclesRef = useRef<Obstacle[]>([]);
 
-// Spineアセットの読み込み
+  // Spineアセットの読み込み
   const loadSpineAssets = async (canvas: HTMLCanvasElement) => {
-    // フォルダ階層: public/assets/spine/player/
     const baseUrl = "assets/spine/player/";
     const assetManager = new spine.AssetManager(baseUrl);
 
-    // すべて "character" に統一
     assetManager.loadText("character.json");
     assetManager.loadTextureAtlas("character.atlas");
 
@@ -76,8 +76,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     const atlas = assetManager.require("character.atlas");
     const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
     const skeletonJson = new spine.SkeletonJson(atlasLoader);
-    
-    // ここも character.json を読み込むように修正
     const skeletonData = skeletonJson.readSkeletonData(assetManager.require("character.json"));
     
     const skeleton = new spine.Skeleton(skeletonData);
@@ -85,7 +83,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     const state = new spine.AnimationState(stateData);
     const renderer = new spine.SkeletonRenderer(canvas.getContext("2d")!);
 
-    // サイズ調整（0.25は例です。画面に合わせて調整してください）
+    // サイズ調整（必要に応じて 0.2 などに変更してください）
     skeleton.setScale(0.25, 0.25); 
     state.setAnimation(0, "run", true);
 
@@ -101,6 +99,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     if (!canvasRef.current) return;
     setupCanvas(canvasRef.current);
 
+    // Spineの読み込みを開始
     await loadSpineAssets(canvasRef.current);
 
     const [bgFar, bgMid, ground, oGS, oGL, oFS, oFL] = await Promise.all([
@@ -154,7 +153,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
       return;
     }
 
-    // クラッシュ時は更新停止（アニメーションだけ少し見せるために return は描画の後に移動）
     const isCrashed = playerRef.current.state === PlayerState.CRASHED;
 
     if (!isCrashed) {
@@ -190,7 +188,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
 
         if (hitX && hitY) {
           player.state = PlayerState.CRASHED;
-          spineRef.current?.state.setAnimation(0, "die", false); // dieモーション再生
+          spineRef.current?.state.setAnimation(0, "die", false); 
           onGameOver(Math.floor(scoreRef.current));
           return false;
         }
@@ -225,6 +223,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
       state.apply(skeleton);
       skeleton.updateWorldTransform();
       
+      // キャラ位置の調整
       skeleton.x = 50 + config.playerWidth / 2;
       skeleton.y = playerRef.current.y + config.playerHeight;
       
