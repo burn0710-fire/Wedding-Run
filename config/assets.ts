@@ -1,7 +1,7 @@
 // config/assets.ts
 
 // 画像のベースパス（GitHub Pages で /Wedding-Run/ 配下に出す前提）
-const IMAGE_BASE = "/Wedding-Run/assets/images";
+const IMAGE_BASE = "/Wedding-Run/public/assets/images";
 
 const assetConfig = {
   BACKGROUND: {
