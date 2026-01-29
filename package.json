@@ -8,14 +8,13 @@
     "build": "vite build",
     "preview": "vite preview"
   },
-"dependencies": {
-  "@esotericsoftware/spine-canvas": "4.1.23",
-  "@esotericsoftware/spine-core": "4.1.23",
-  "react": "^19.2.3",
-  "react-dom": "^19.2.3",
-  "firebase": "^12.6.0"
-}
-
+  "dependencies": {
+    "@esotericsoftware/spine-canvas": "4.1.23",
+    "@esotericsoftware/spine-core": "4.1.23",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "firebase": "^12.6.0"
+  },
   "devDependencies": {
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
