@@ -1,4 +1,10 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  MouseEvent,
+} from "react";
 import * as spine from "@esotericsoftware/spine-canvas";
 import gameConfigData from "../config/game";
 
@@ -10,190 +16,233 @@ enum PlayerState {
   CRASHED = "CRASHED",
 }
 
-const CANVAS_W = 800;
-const CANVAS_H = 450;
-
-export default function GameScreen({
+const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   onGameOver,
-}: {
-  onGameOver: (score: number) => void;
-}) {
+}) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const requestRef = useRef<number>(0);
-
-  const [isReady, setIsReady] = useState(false);
-  const [currentScore, setCurrentScore] = useState(0);
-
+  const scoreRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(performance.now());
-  const scoreRef = useRef(0);
 
-  // 画像アセット
-  const assets = useRef<{
+  const [currentScore, setCurrentScore] = useState(0);
+  const [isReady, setIsReady] = useState(false);
+
+  const assetsRef = useRef<{
     bgFar: HTMLImageElement | null;
     bgMid: HTMLImageElement | null;
     ground: HTMLImageElement | null;
-  }>({ bgFar: null, bgMid: null, ground: null });
+  }>({
+    bgFar: null,
+    bgMid: null,
+    ground: null,
+  });
 
-  // Spine
   const spineRef = useRef<{
     skeleton: any;
     state: any;
     renderer: any;
   } | null>(null);
 
-  // プレイヤー位置
-  const player = useRef({
-    y: 350,
+  const playerRef = useRef({
+    y: config.canvasHeight - config.groundHeight - config.playerHeight,
     vy: 0,
+    state: PlayerState.RUNNING,
     jumpCount: 0,
   });
 
-  // スクロール
-  const scroll = useRef({ bgFar: 0, bgMid: 0, ground: 0 });
+  const scrollRef = useRef({
+    bgFar: 0,
+    bgMid: 0,
+    ground: 0,
+  });
 
-  // ==========================
+  // --------------------------------------------------------
   // 初期化
-  // ==========================
+  // --------------------------------------------------------
   useEffect(() => {
-    const init = async () => {
-      const cvs = canvasRef.current;
-      if (!cvs) return;
+    console.log("GameScreen mounted");
+    console.log("spine.VERSION:", (spine as any).VERSION);
+    console.log("spine.AssetManager:", (spine as any).AssetManager);
 
-      cvs.width = CANVAS_W;
-      cvs.height = CANVAS_H;
+    const init = async () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      canvas.width = config.canvasWidth;
+      canvas.height = config.canvasHeight;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      // 画像のベースパス（/Wedding-Run/ を考慮）
+      const base =
+        (import.meta as any).env.BASE_URL ??
+        (window.location.pathname.includes("/Wedding-Run/")
+          ? "/Wedding-Run/"
+          : "/");
+
+      const imgBase = `${base}assets/images/`;
+      const spineBase = `${base}assets/spine/player/`;
 
       const loadImg = (src: string) =>
         new Promise<HTMLImageElement | null>((resolve) => {
           const img = new Image();
           img.src = src;
-          img.onload = () => resolve(img);
-          img.onerror = () => resolve(null);
+          img.onload = () => {
+            console.log("loaded image:", src, img.width, "x", img.height);
+            resolve(img);
+          };
+          img.onerror = (e) => {
+            console.error("FAILED to load image:", src, e);
+            resolve(null);
+          };
         });
 
-      // 背景読み込み（相対パス）
-      assets.current.bgFar = await loadImg("assets/images/bg_far.png");
-      assets.current.bgMid = await loadImg("assets/images/bg_mid.png");
-      assets.current.ground = await loadImg("assets/images/ground.png");
+      // 背景画像読み込み
+      assetsRef.current.bgFar = await loadImg(`${imgBase}bg_far.png`);
+      assetsRef.current.bgMid = await loadImg(`${imgBase}bg_mid.png`);
+      assetsRef.current.ground = await loadImg(`${imgBase}ground.png`);
 
-      // Spine 読み込み
-      const assetManager = new (spine as any).AssetManager(
-        "assets/spine/player/",
-        new (spine as any).Downloader()
-      );
+      // Spine アセット
+      const AssetManager = (spine as any).AssetManager;
+      const Downloader = (spine as any).Downloader;
 
+      const assetManager = new AssetManager(spineBase, new Downloader());
       assetManager.loadText("char_v2.json");
       assetManager.loadTextureAtlas("char_v2.atlas");
 
-      const wait = () => {
+      const check = () => {
+        if (!canvasRef.current) return;
+
         if (assetManager.isLoadingComplete()) {
           try {
             const atlas = assetManager.get("char_v2.atlas");
             const json = assetManager.get("char_v2.json");
+            console.log("Spine assets loaded:", atlas, json);
 
             const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
             const skeletonJson = new spine.SkeletonJson(atlasLoader);
             const skeletonData = skeletonJson.readSkeletonData(json);
 
             const skeleton = new spine.Skeleton(skeletonData);
+            // 画面に収まるようにスケールと初期位置を調整
+            skeleton.scaleX = 0.4;
+            skeleton.scaleY = 0.4;
+            skeleton.x = config.canvasWidth * 0.25;
+            skeleton.y = config.canvasHeight - config.groundHeight;
+
             const state = new spine.AnimationState(
               new spine.AnimationStateData(skeletonData)
             );
-
             state.setAnimation(0, "run", true);
 
-            const renderer = new spine.SkeletonRenderer(
-              cvs.getContext("2d")!
+            const renderer = new (spine as any).SkeletonRenderer(
+              canvas.getContext("2d")!
             );
+            renderer.premultipliedAlpha = true;
 
-            // 初期座標
-            skeleton.x = 180;
-            skeleton.y = 350;
-            skeleton.scaleX = skeleton.scaleY = 0.5;
-
-            spineRef.current = { skeleton, state, renderer };
-          } catch (err) {
-            console.log("Spine init error:", err);
+            spineRef.current = {
+              skeleton,
+              state,
+              renderer,
+            };
+          } catch (e) {
+            console.warn("Spine init error:", e);
           }
+
           setIsReady(true);
         } else {
-          setTimeout(wait, 100);
+          setTimeout(check, 100);
         }
       };
 
-      wait();
+      check();
     };
 
     init();
+
+    return () => {
+      if (requestRef.current) {
+        cancelAnimationFrame(requestRef.current);
+      }
+    };
   }, []);
 
-  // ==========================
-  // update()
-  // ==========================
+  // --------------------------------------------------------
+  // メインループ
+  // --------------------------------------------------------
   const update = useCallback(
     (time: number) => {
-      const cvs = canvasRef.current;
-      if (!cvs) return;
-
-      const ctx = cvs.getContext("2d");
-      if (!ctx) return;
-
       const dt = (time - lastTimeRef.current) / 1000;
       lastTimeRef.current = time;
 
-      if (!isReady) {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext("2d");
+      if (!canvas || !ctx || !isReady) {
         requestRef.current = requestAnimationFrame(update);
         return;
       }
 
-      // スコア更新
+      // スコア & スクロール
       scoreRef.current += dt * 10;
       setCurrentScore(Math.floor(scoreRef.current));
 
-      // 背景スクロール
-      scroll.current.bgFar = (scroll.current.bgFar + 30 * dt) % CANVAS_W;
-      scroll.current.bgMid = (scroll.current.bgMid + 60 * dt) % CANVAS_W;
-      scroll.current.ground = (scroll.current.ground + 120 * dt) % CANVAS_W;
+      scrollRef.current.bgFar =
+        (scrollRef.current.bgFar + config.initialSpeed * 0.2) %
+        config.canvasWidth;
+      scrollRef.current.bgMid =
+        (scrollRef.current.bgMid + config.initialSpeed * 0.5) %
+        config.canvasWidth;
+      scrollRef.current.ground =
+        (scrollRef.current.ground + config.initialSpeed) %
+        config.canvasWidth;
 
       // プレイヤー物理
-      player.current.vy += 900 * dt;
-      player.current.y += player.current.vy;
-      if (player.current.y > 350) {
-        player.current.y = 350;
-        player.current.vy = 0;
-        player.current.jumpCount = 0;
+      const p = playerRef.current;
+      p.vy += config.gravity;
+      p.y += p.vy;
+      const groundY =
+        config.canvasHeight - config.groundHeight - config.playerHeight;
+      if (p.y > groundY) {
+        p.y = groundY;
+        p.vy = 0;
+        p.jumpCount = 0;
       }
 
-      // ==========================
-      // 描画
-      // ==========================
-      ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+      // 画面クリア
+      ctx.clearRect(0, 0, config.canvasWidth, config.canvasHeight);
 
-      // --- 背景 ---
+      // 背景描画
       const drawLoop = (
         img: HTMLImageElement | null,
-        scrollX: number,
+        x: number,
         y: number,
         h: number
       ) => {
         if (!img) return;
-        ctx.drawImage(img, -scrollX, y, CANVAS_W, h);
-        ctx.drawImage(img, -scrollX + CANVAS_W, y, CANVAS_W, h);
+        ctx.drawImage(img, -x, y, config.canvasWidth, h);
+        ctx.drawImage(img, -x + config.canvasWidth, y, config.canvasWidth, h);
       };
 
-      drawLoop(assets.current.bgFar, scroll.current.bgFar, 0, CANVAS_H);
-      drawLoop(assets.current.bgMid, scroll.current.bgMid, 0, CANVAS_H);
+      drawLoop(assetsRef.current.bgFar, scrollRef.current.bgFar, 0, canvas.height);
       drawLoop(
-        assets.current.ground,
-        scroll.current.ground,
-        CANVAS_H - 100,
-        100
+        assetsRef.current.bgMid,
+        scrollRef.current.bgMid,
+        0,
+        canvas.height
+      );
+      drawLoop(
+        assetsRef.current.ground,
+        scrollRef.current.ground,
+        canvas.height - config.groundHeight,
+        config.groundHeight
       );
 
-      // --- 赤いデバッグ四角 ---
+      // ★デバッグ用の赤い四角
       ctx.fillStyle = "red";
-      ctx.fillRect(10, 10, 40, 40);
+      ctx.fillRect(10, 10, 80, 80);
 
-      // --- Spine プレイヤー ---
+      // プレイヤー（Spine）
       if (spineRef.current) {
         const { skeleton, state, renderer } = spineRef.current;
 
@@ -201,12 +250,20 @@ export default function GameScreen({
         state.apply(skeleton);
         skeleton.updateWorldTransform();
 
-        skeleton.x = 180;
-        skeleton.y = player.current.y + 100;
+        const pY = p.y + config.playerHeight;
+        const clampedY = Math.max(
+          config.groundHeight,
+          Math.min(canvas.height, pY)
+        );
 
+        skeleton.x = canvas.width * 0.25;
+        skeleton.y = clampedY;
+
+        renderer.ctx = ctx;
         renderer.draw(skeleton);
       }
 
+      // 次フレーム予約
       requestRef.current = requestAnimationFrame(update);
     },
     [isReady]
@@ -217,41 +274,39 @@ export default function GameScreen({
     return () => cancelAnimationFrame(requestRef.current);
   }, [update]);
 
-  // ==========================
-  // ジャンプ
-  // ==========================
-  const jump = () => {
-    if (player.current.jumpCount < 2) {
-      player.current.vy = -450;
-      player.current.jumpCount++;
+  // --------------------------------------------------------
+  // 入力（クリックでジャンプ）
+  // --------------------------------------------------------
+  const handleMouseDown = (e: MouseEvent<HTMLDivElement>) => {
+    const p = playerRef.current;
+    if (p.jumpCount >= config.maxJumps) return;
 
-      if (spineRef.current) {
-        const { state } = spineRef.current;
-        state.setAnimation(0, "jump", false);
-        state.addAnimation(0, "run", true, 0);
-      }
+    p.vy = config.jumpStrength;
+    p.jumpCount++;
+
+    if (spineRef.current) {
+      const { state } = spineRef.current;
+      state.setAnimation(0, "jump", false);
+      state.addAnimation(0, "run", true, 0);
     }
   };
 
   return (
-    <div
-      className="w-full h-full flex items-center justify-center"
-      onMouseDown={jump}
-      onTouchStart={jump}
-    >
-      <div className="relative" style={{ width: CANVAS_W, height: CANVAS_H }}>
+    <div className="w-full h-full flex items-center justify-center bg-slate-100">
+      <div className="relative" onMouseDown={handleMouseDown}>
         <canvas
           ref={canvasRef}
-          width={CANVAS_W}
-          height={CANVAS_H}
+          width={800}
+          height={450}
           className="block"
           style={{ border: "1px solid red" }}
         />
-
-        <div className="absolute top-2 right-2 bg-white/80 p-2 rounded text-orange-600 font-bold shadow">
+        <div className="absolute top-4 right-4 bg-white/80 p-2 rounded-lg font-bold text-orange-600 shadow">
           SCORE: {currentScore.toString().padStart(5, "0")}
         </div>
       </div>
     </div>
   );
-}
+};
+
+export default GameScreen;
