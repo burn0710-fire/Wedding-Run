@@ -287,7 +287,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
     >
       <div
         className="relative"
-        style={{ width: 800, height: 450, background: "#ffffff" }}
+        style={{ width: 800, height: 450 }}
       >
         <canvas
           ref={canvasRef}
