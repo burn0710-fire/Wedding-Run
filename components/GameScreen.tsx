@@ -4,7 +4,6 @@ import React, {
   useState,
   useCallback,
 } from "react";
-import * as spine from "@esotericsoftware/spine-canvas";
 
 import gameConfigData from "../config/game";
 const config = gameConfigData;
@@ -15,7 +14,7 @@ const base =
     (import.meta as any).env.BASE_URL) ||
   "/Wedding-Run/";
 
-// プレイヤー状態（今はあまり使ってないけど拡張用）
+// プレイヤー状態（将来拡張用）
 enum PlayerState {
   RUNNING = "RUNNING",
   JUMPING = "JUMPING",
@@ -36,7 +35,7 @@ const ENEMY_HEIGHT = 40;
 const ENEMY_BASE_SPEED = 220;
 const PLAYER_WIDTH = 50;
 
-const CANVAS_W = 800;  // 表示サイズを固定
+const CANVAS_W = 800;
 const CANVAS_H = 450;
 
 const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
@@ -49,8 +48,11 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   const [currentScore, setCurrentScore] = useState(0);
   const [isReady, setIsReady] = useState(false);
 
-  const spineRef = useRef<any>(null);
-  const assetsRef = useRef<any>({
+  const assetsRef = useRef<{
+    bgFar: HTMLImageElement | null;
+    bgMid: HTMLImageElement | null;
+    ground: HTMLImageElement | null;
+  }>({
     bgFar: null,
     bgMid: null,
     ground: null,
@@ -75,7 +77,6 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
   // 初期化
   useEffect(() => {
     console.log("GameScreen mounted");
-    console.log("spine.VERSION:", (spine as any).VERSION);
     console.log("config:", config);
 
     isGameOverRef.current = false;
@@ -110,7 +111,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
           };
         });
 
-      // 背景画像
+      // 背景画像を読み込み
       assetsRef.current.bgFar = await loadImg(
         `${base}assets/images/bg_far.png`
       );
@@ -121,80 +122,29 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         `${base}assets/images/ground.png`
       );
 
-      // Spine AssetManager
-      const AssetManager = (spine as any).AssetManager;
-      const Downloader = (spine as any).Downloader;
+      // 敵の初期配置
+      const enemyGroundY =
+        config.canvasHeight - config.groundHeight - ENEMY_HEIGHT;
 
-      const assetManager = new AssetManager(
-        `${base}assets/spine/player/`,
-        new Downloader()
-      );
+      enemiesRef.current = [
+        {
+          x: config.canvasWidth + 100,
+          y: enemyGroundY,
+          width: ENEMY_WIDTH,
+          height: ENEMY_HEIGHT,
+          speed: ENEMY_BASE_SPEED,
+        },
+        {
+          x: config.canvasWidth + 400,
+          y: enemyGroundY,
+          width: ENEMY_WIDTH,
+          height: ENEMY_HEIGHT,
+          speed: ENEMY_BASE_SPEED * 1.15,
+        },
+      ];
 
-      assetManager.loadText("char_v2.json");
-      assetManager.loadTextureAtlas("char_v2.atlas");
-
-      const check = () => {
-        if (assetManager.isLoadingComplete()) {
-          const atlas = assetManager.get("char_v2.atlas");
-          const jsonText = assetManager.get("char_v2.json");
-          console.log("Spine assets loaded:", atlas, jsonText);
-
-          try {
-            const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
-            const skeletonJson = new spine.SkeletonJson(atlasLoader);
-            const skeletonData =
-              skeletonJson.readSkeletonData(jsonText);
-
-            const skeleton = new spine.Skeleton(skeletonData);
-            const state = new spine.AnimationState(
-              new spine.AnimationStateData(skeletonData)
-            );
-            state.setAnimation(0, "run", true);
-
-            const ctx = canvas.getContext("2d");
-            if (!ctx) {
-              console.error("cannot get 2d context");
-              return;
-            }
-
-            const renderer = new spine.SkeletonRenderer(ctx);
-
-            spineRef.current = {
-              skeleton,
-              state,
-              renderer,
-            };
-          } catch (e) {
-            console.warn("Spine init error:", e);
-          }
-
-          // 敵の初期配置
-          const enemyGroundY =
-            config.canvasHeight - config.groundHeight - ENEMY_HEIGHT;
-          enemiesRef.current = [
-            {
-              x: config.canvasWidth + 100,
-              y: enemyGroundY,
-              width: ENEMY_WIDTH,
-              height: ENEMY_HEIGHT,
-              speed: ENEMY_BASE_SPEED,
-            },
-            {
-              x: config.canvasWidth + 400,
-              y: enemyGroundY,
-              width: ENEMY_WIDTH,
-              height: ENEMY_HEIGHT,
-              speed: ENEMY_BASE_SPEED * 1.15,
-            },
-          ];
-
-          setIsReady(true);
-        } else {
-          setTimeout(check, 100);
-        }
-      };
-
-      check();
+      // Spine に依存せずゲーム開始
+      setIsReady(true);
     };
 
     init();
@@ -242,10 +192,12 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
       const p = playerRef.current;
       p.vy += config.gravity;
       p.y += p.vy;
+
       const groundY =
         config.canvasHeight -
         config.groundHeight -
         config.playerHeight;
+
       if (p.y > groundY) {
         p.y = groundY;
         p.vy = 0;
@@ -342,7 +294,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         config.groundHeight
       );
 
-      // プレイヤー（赤四角デバッグ）
+      // プレイヤー（赤四角）
       ctx.fillStyle = "red";
       ctx.fillRect(
         playerX,
@@ -362,18 +314,6 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
         );
       });
 
-      // Spine
-      if (spineRef.current) {
-        const { skeleton, state, renderer } =
-          spineRef.current;
-        state.update(dt);
-        state.apply(skeleton);
-        skeleton.updateWorldTransform();
-        skeleton.x = playerX;
-        skeleton.y = p.y + config.playerHeight;
-        renderer.draw(skeleton);
-      }
-
       requestRef.current = requestAnimationFrame(update);
     },
     [isReady, onGameOver]
@@ -391,20 +331,6 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
     if (playerRef.current.jumpCount < config.maxJumps) {
       playerRef.current.vy = config.jumpStrength;
       playerRef.current.jumpCount++;
-
-      if (spineRef.current) {
-        spineRef.current.state.setAnimation(
-          0,
-          "jump",
-          false
-        );
-        spineRef.current.state.addAnimation(
-          0,
-          "run",
-          true,
-          0
-        );
-      }
     }
   };
 
@@ -416,7 +342,7 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({
       <div className="absolute inset-0 flex items-center justify-center">
         <div
           style={{
-            width: CANVAS_W,   // ここを固定値に
+            width: CANVAS_W,
             height: CANVAS_H,
             border: "4px solid #ffd800",
             boxSizing: "content-box",
