@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@esotericsoftware/spine-canvas": "^4.2.0",
+    "@esotericsoftware/spine-canvas": "^4.1.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "firebase": "^12.6.0"
