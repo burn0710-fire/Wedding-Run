@@ -1,5 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as spine from "@esotericsoftware/spine-canvas";
+console.log("Spine VERSION:", (spine as any).VERSION);
+console.log("AssetManager:", (spine as any).AssetManager);
+console.log("Downloader:", (spine as any).Downloader);
+
 import gameConfigData from '../config/game';
 const config = gameConfigData;
 
@@ -47,9 +51,16 @@ const GameScreen: React.FC<{ onGameOver: (score: number) => void }> = ({ onGameO
       assetsRef.current.bgMid = await loadImg("assets/images/bg_mid.png");
       assetsRef.current.ground = await loadImg("assets/images/ground.png");
 
-      const assetManager = new spine.AssetManager("assets/spine/player/");
-      assetManager.loadText("char_v2.json");
-      assetManager.loadTextureAtlas("char_v2.atlas");
+// Spine のアセットローダーを作成
+const assetManager = new (spine as any).AssetManager(
+  "assets/spine/player/",
+  new (spine as any).Downloader()
+);
+
+// プレイヤー用 Spine データを読み込み
+assetManager.loadText("char_v2.json");
+assetManager.loadTextureAtlas("char_v2.atlas");
+
 
       const check = () => {
         if (assetManager.isLoadingComplete()) {
