@@ -112,10 +112,10 @@ spineRef.current = {
   const update = useCallback((time: number) => {
     const dt = (time - lastTimeRef.current) / 1000;
     lastTimeRef.current = time;
-    const ctx = canvasRef.current?.getContext('2d');
-　  // ←ここにログを追加
-　  console.log('update isReady=', isReady, 'ctx=', !!ctx);
     
+    const ctx = canvasRef.current?.getContext('2d');
+    
+　  // ←ここにログを追加
     if (!ctx || !isReady) {
       requestRef.current = requestAnimationFrame(update);
       return;
