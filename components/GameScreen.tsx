@@ -40,7 +40,7 @@ const PLAYER_HEIGHT = 80;
 const GAMEOVER_DELAY = 1000;       // 当たり後 1 秒で GameOver
 // オブジェクトの画像下端とキャラの画像下端を揃える
 const OBSTACLE_FOOT_OFFSET = 40;
-const CHAR_FOOT_OFFSET = OBSTACLE_FOOT_OFFSET + 4;
+const CHAR_FOOT_OFFSET = OBSTACLE_FOOT_OFFSET + 6;
 
 
 // Dino Run ぽい物理
