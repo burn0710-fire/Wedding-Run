@@ -1,4 +1,3 @@
-// components/GameScreen.tsx
 import React, {
   useCallback,
   useEffect,
@@ -33,21 +32,24 @@ const CANVAS_H = 450;
 const GROUND_HEIGHT = 80;
 const GROUND_Y = CANVAS_H - GROUND_HEIGHT;
 
-// ==== プレイヤー ====
-// ここは「見かけの大きさ」なので、画像の実寸とは別で OK
+// ==== プレイヤー（当たり判定用サイズ）====
 const PLAYER_WIDTH = 60;
 const PLAYER_HEIGHT = 80;
 
-// Dino Run ぽい物理（フレームベースくらいの感覚）
-const GRAVITY = 0.8;         // 落ちる強さ
-const JUMP_STRENGTH = -15;   // ジャンプの初速
+// 見た目の拡大率
+const PLAYER_VISUAL_SCALE = 1.5;
+const OBSTACLE_VISUAL_SCALE = 1.5;
 
-// スピード関連（px / frame 相当）
-const INITIAL_SPEED = 8;
+// Dino Run ぽい物理
+const GRAVITY = 0.8;
+const JUMP_STRENGTH = -15;
+
+// ★スピード関連：最初を半分くらいに
+const INITIAL_SPEED = 4;      // 8 → 4
 const MAX_SPEED = 26;
-const ACCELERATION = 0.03;
+const ACCELERATION = 0.02;    // 0.03 → 0.02 と少しマイルドに
 
-// 敵の出現間隔（frame 単位）
+// 敵の出現間隔
 const SPAWN_BASE_MIN = 60;
 const SPAWN_BASE_VAR = 80;
 
@@ -78,7 +80,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     isPlaying: true,
     hasGameOverSent: false,
 
-    // スクロール用
     speed: INITIAL_SPEED,
     frameCount: 0,
     nextSpawnThreshold: SPAWN_BASE_MIN,
@@ -95,7 +96,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
       height: PLAYER_HEIGHT,
       animState: "run" as PlayerAnimState,
       runFrame: 0 as 0 | 1,
-      runAnimTimer: 0, // ms
+      runAnimTimer: 0,
     },
 
     obstacles: [] as Obstacle[],
@@ -177,7 +178,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
   // === ジャンプボタン離し ===
   const endJump = useCallback(() => {
     const state = gameState.current;
-    // 長押しキャンセル：上向き速度が大きいときだけ減速
     if (state.player.isJumping && state.player.dy < -2) {
       state.player.dy = state.player.dy * 0.45;
     }
@@ -197,7 +197,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
       const state = gameState.current;
       const assets = assetsRef.current;
 
-      // スコア更新（動いている間のみ）
+      // スコア更新
       if (state.isPlaying) {
         scoreRef.current +=
           0.1 * (state.speed / INITIAL_SPEED) * (dtMs / 16.67);
@@ -230,7 +230,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           }
         }
 
-        // 走りアニメーション（run のときだけ）
+        // 走りアニメーション
         if (state.player.animState === "run") {
           state.player.runAnimTimer += dtMs;
           if (state.player.runAnimTimer > 120) {
@@ -242,7 +242,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           state.player.runFrame = 0;
         }
 
-        // 敵の出現管理
+        // 敵の出現
         state.frameCount++;
         if (state.frameCount > state.nextSpawnThreshold) {
           state.frameCount = 0;
@@ -297,7 +297,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         });
         state.obstacles = state.obstacles.filter((o) => !o.markedForDeletion);
 
-        // 当たり判定
+        // 当たり判定（当たり判定は小さい箱のまま）
         const pLeft = state.player.x;
         const pRight = state.player.x + state.player.width;
         const pBottom = state.player.y;
@@ -332,7 +332,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
       // ===== 描画 =====
       ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
-      // 空色ベース
+      // 空
       ctx.fillStyle = "#8fd3ff";
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
@@ -408,15 +408,28 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         ctx.fillRect(0, GROUND_Y, CANVAS_W, GROUND_HEIGHT);
       }
 
-      // プレイヤー
+      // ===== プレイヤー描画（1.5倍 & アスペクト維持）=====
       const p = state.player;
-      const pyTop = p.y - p.height;
-      let playerImg: HTMLImageElement | null = null;
+      const baseImg =
+        assets.charaRun1 || assets.charaRun2 || assets.charaDie || null;
 
+      let visualH = p.height * PLAYER_VISUAL_SCALE;
+      let visualW = p.width * PLAYER_VISUAL_SCALE;
+
+      if (baseImg) {
+        const aspect = baseImg.width / baseImg.height;
+        visualH = p.height * PLAYER_VISUAL_SCALE;
+        visualW = visualH * aspect;
+      }
+
+      const drawXBase = p.x - (visualW - p.width) / 2;
+      const drawYBase = p.y - visualH;
+
+      let playerImg: HTMLImageElement | null = null;
       if (p.animState === "die") {
         playerImg = assets.charaDie;
       } else if (p.animState === "jump") {
-        playerImg = assets.charaRun1; // ジャンプ中は 1 枚目固定
+        playerImg = assets.charaRun1;
       } else {
         playerImg = p.runFrame === 0 ? assets.charaRun1 : assets.charaRun2;
       }
@@ -428,24 +441,28 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           0,
           playerImg.width,
           playerImg.height,
-          p.x,
-          pyTop,
-          p.width,
-          p.height
+          drawXBase,
+          drawYBase,
+          visualW,
+          visualH
         );
       } else {
-        // 画像未ロード時のフォールバック
         ctx.fillStyle = "red";
-        ctx.fillRect(p.x, pyTop, p.width, p.height);
+        ctx.fillRect(drawXBase, drawYBase, visualW, visualH);
       }
 
-      // 敵
+      // ===== 敵（1.5倍表示）=====
       state.obstacles.forEach((obs) => {
         let img: HTMLImageElement | null = null;
         if (obs.type === "GROUND_SMALL") img = assets.obsGroundSmall;
         else if (obs.type === "GROUND_LARGE") img = assets.obsGroundLarge;
         else if (obs.type === "FLYING_SMALL") img = assets.obsFlySmall;
         else img = assets.obsFlyLarge;
+
+        const vW = obs.width * OBSTACLE_VISUAL_SCALE;
+        const vH = obs.height * OBSTACLE_VISUAL_SCALE;
+        const drawX = obs.x - (vW - obs.width) / 2;
+        const drawY = obs.y - (vH - obs.height); // 足元合わせ
 
         if (img) {
           ctx.drawImage(
@@ -454,14 +471,14 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
             0,
             img.width,
             img.height,
-            obs.x,
-            obs.y,
-            obs.width,
-            obs.height
+            drawX,
+            drawY,
+            vW,
+            vH
           );
         } else {
           ctx.fillStyle = "#1d4ed8";
-          ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+          ctx.fillRect(drawX, drawY, vW, vH);
         }
       });
 
