@@ -1,7 +1,8 @@
 // config/assets.ts
 
-// 画像のベースパス（GitHub Pages で /Wedding-Run/ 配下に出す前提）
-const IMAGE_BASE = "/Wedding-Run/public/assets/images";
+// base は "/" または "/Wedding-Run/" のどちらにもなる。
+// import.meta.env.BASE_URL を先頭につければ両対応できる。
+const IMAGE_BASE = `${import.meta.env.BASE_URL}assets/images`;
 
 const assetConfig = {
   BACKGROUND: {
@@ -24,25 +25,21 @@ const assetConfig = {
   },
 
   OBSTACLES: {
-    // 地上の小さい障害物
     GROUND_SMALL: {
       path: `${IMAGE_BASE}/obstacle_s.png`,
       width: 113,
       height: 144,
     },
-    // 地上の大きい障害物
     GROUND_LARGE: {
       path: `${IMAGE_BASE}/obstacle_l.png`,
       width: 118,
       height: 279,
     },
-    // 空中の小さい障害物
     FLYING_SMALL: {
       path: `${IMAGE_BASE}/obstacle_fly_s.png`,
       width: 343,
       height: 203,
     },
-    // 空中の大きい障害物
     FLYING_LARGE: {
       path: `${IMAGE_BASE}/obstacle_fly_l.png`,
       width: 343,
@@ -51,20 +48,6 @@ const assetConfig = {
   },
 
   PLAYER: {
-    // いまは使わないけど、古いコードが参照しても落ちないようにダミー定義だけ残しておく
-    SPINE: {
-      BASE: "/Wedding-Run/assets/spine/player/",
-      JSON: "player.json",
-      ATLAS: "player.atlas",
-      SCALE: 0.4,
-      ANIMATIONS: {
-        RUN: "run",
-        JUMP: "jump",
-        DIE: "die",
-      },
-    },
-
-    // ★ 画像３枚でアニメするスプライト設定
     SPRITES: {
       RUN_1: {
         path: `${IMAGE_BASE}/chara_1.png`,
@@ -76,13 +59,11 @@ const assetConfig = {
         width: 647,
         height: 453,
       },
-      // JUMP は chara_1 をそのまま使う
       JUMP: {
         path: `${IMAGE_BASE}/chara_1.png`,
         width: 647,
         height: 453,
       },
-      // DIE だけ chara_3
       DIE: {
         path: `${IMAGE_BASE}/chara_3.png`,
         width: 647,
@@ -90,6 +71,6 @@ const assetConfig = {
       },
     },
   },
-} as const;
+};
 
 export default assetConfig;
