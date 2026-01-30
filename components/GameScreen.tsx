@@ -38,9 +38,10 @@ const PLAYER_HEIGHT = 80;
 
 // ---- 描画オフセット・演出関連 ----
 const GAMEOVER_DELAY = 1000;       // 当たり後 1 秒で GameOver
-// ★ 足元オフセット（前回の 2 倍に増やす）
-const CHAR_FOOT_OFFSET = 56;
+// オブジェクトの画像下端とキャラの画像下端を揃える
 const OBSTACLE_FOOT_OFFSET = 40;
+const CHAR_FOOT_OFFSET = OBSTACLE_FOOT_OFFSET + 4;
+
 
 // Dino Run ぽい物理
 const GRAVITY = 0.8;
