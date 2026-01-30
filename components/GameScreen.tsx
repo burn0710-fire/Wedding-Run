@@ -37,16 +37,17 @@ const PLAYER_WIDTH = 60;
 const PLAYER_HEIGHT = 80;
 
 // ---- 描画オフセット・演出関連 ----
-const GAMEOVER_DELAY = 1000;       // ★ 当たり後 1 秒で GameOver
-const CHAR_FOOT_OFFSET = 28;       // ★ 足元を下げて花あたりに乗る感じ
-const OBSTACLE_FOOT_OFFSET = 20;
+const GAMEOVER_DELAY = 1000;       // 当たり後 1 秒で GameOver
+// ★ 足元オフセット（前回の 2 倍に増やす）
+const CHAR_FOOT_OFFSET = 56;
+const OBSTACLE_FOOT_OFFSET = 40;
 
 // Dino Run ぽい物理
 const GRAVITY = 0.8;
 const JUMP_STRENGTH = -15;
 
 // スピード関連
-const INITIAL_SPEED = 4;           // ゆっくり目スタート
+const INITIAL_SPEED = 4;
 const MAX_SPEED = 26;
 const ACCELERATION = 0.02;
 
@@ -222,10 +223,10 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         // スピードアップ
         state.speed = Math.min(MAX_SPEED, state.speed + ACCELERATION);
 
-        // 背景スクロール
-        state.bgFarOffset -= state.speed * 0.3;
-        state.bgMidOffset -= state.speed * 0.6;
-        state.groundOffset -= state.speed;
+        // 背景スクロール（★右→左へ流れるように符号を反転）
+        state.bgFarOffset += state.speed * 0.3;
+        state.bgMidOffset += state.speed * 0.6;
+        state.groundOffset += state.speed;
 
         // プレイヤー物理
         state.player.dy += GRAVITY;
@@ -275,7 +276,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           // 当たり判定用の箱サイズ・高さ（ざっくり）
           let hitW = 40;
           let hitH = 50;
-          let yPos = GROUND_Y - hitH + 4; // 少し埋めて足が花ラインに乗る感じ
+          let yPos = GROUND_Y - hitH + 4;
 
           if (type === "GROUND_SMALL") {
             hitW = 38;
@@ -288,9 +289,9 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           } else if (type === "FLYING_SMALL") {
             hitW = 35;
             hitH = 28;
-            yPos = GROUND_Y - 90; // 少し高め：ジャンプで当てやすい
+            yPos = GROUND_Y - 90;
           } else if (type === "FLYING_LARGE") {
-            // ★ 大型は高め＋薄めの当たり判定 → 下をくぐれる
+            // 大型は高め＋薄めの当たり判定 → 下をくぐれる
             hitW = 40;
             hitH = 28;
             yPos = GROUND_Y - 120;
@@ -345,7 +346,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
             if (!state.hasGameOverSent) {
               state.hasGameOverSent = true;
               const finalScore = Math.floor(scoreRef.current);
-              // ★ 1 秒待ってから GameOver
               setTimeout(() => {
                 onGameOver(finalScore);
               }, GAMEOVER_DELAY);
