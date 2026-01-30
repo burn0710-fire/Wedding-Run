@@ -32,26 +32,35 @@ const CANVAS_H = 450;
 const GROUND_HEIGHT = 80;
 const GROUND_Y = CANVAS_H - GROUND_HEIGHT;
 
-// ==== プレイヤー（当たり判定用サイズ）====
+// ==== プレイヤー（当たり判定用）====
 const PLAYER_WIDTH = 60;
 const PLAYER_HEIGHT = 80;
 
-// 見た目の拡大率
-const PLAYER_VISUAL_SCALE = 1.5;
-const OBSTACLE_VISUAL_SCALE = 1.5;
+// 描画用スケール・演出関連
+const GAMEOVER_DELAY = 2000; // ms
+const CHAR_FOOT_OFFSET = 10; // 足元を少し下げて地面に乗せる
+const OBSTACLE_FOOT_OFFSET = 10;
 
 // Dino Run ぽい物理
 const GRAVITY = 0.8;
 const JUMP_STRENGTH = -15;
 
-// ★スピード関連：最初を半分くらいに
-const INITIAL_SPEED = 4;      // 8 → 4
+// スピード関連
+const INITIAL_SPEED = 4; // 少しゆっくりスタート
 const MAX_SPEED = 26;
-const ACCELERATION = 0.02;    // 0.03 → 0.02 と少しマイルドに
+const ACCELERATION = 0.02;
 
-// 敵の出現間隔
+// 敵の出現間隔（frame）
 const SPAWN_BASE_MIN = 60;
 const SPAWN_BASE_VAR = 80;
+
+// === スプライトの元サイズから描画スケール計算 ===
+const CHAR_BASE = assetConfig.PLAYER.SPRITES.RUN_1;
+// 「当たり判定箱の高さ 80 を 1.5倍」に相当する高さになるようにスケール
+const CHAR_TARGET_VISUAL_H = PLAYER_HEIGHT * 1.5;
+const CHAR_SCALE = CHAR_TARGET_VISUAL_H / CHAR_BASE.height;
+
+const OBSTACLE_SCALE = 0.35; // 障害物の見た目サイズ
 
 type PlayerAnimState = "run" | "jump" | "die";
 
@@ -249,38 +258,45 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
 
           const r = Math.random();
           let type: ObstacleType = "GROUND_SMALL";
-          let width = 30;
-          let height = 30;
-          let yPos = GROUND_Y - height;
 
           if (r < 0.4) {
             type = "GROUND_SMALL";
-            width = 30;
-            height = 30;
-            yPos = GROUND_Y - height;
           } else if (r < 0.7) {
             type = "GROUND_LARGE";
-            width = 45;
-            height = 55;
-            yPos = GROUND_Y - height;
           } else if (r < 0.9) {
             type = "FLYING_SMALL";
-            width = 30;
-            height = 25;
-            yPos = GROUND_Y - 60;
           } else {
             type = "FLYING_LARGE";
-            width = 50;
-            height = 40;
-            yPos = GROUND_Y - 80;
           }
+
+          // 当たり判定用の箱サイズ（見た目より少し小さめでOK）
+          let hitW = 40;
+          let hitH = 50;
+
+          if (type === "GROUND_SMALL") {
+            hitW = 35;
+            hitH = 40;
+          } else if (type === "GROUND_LARGE") {
+            hitW = 45;
+            hitH = 70;
+          } else if (type === "FLYING_SMALL") {
+            hitW = 40;
+            hitH = 30;
+          } else {
+            hitW = 55;
+            hitH = 40;
+          }
+
+          let yPos = GROUND_Y - hitH;
+          if (type === "FLYING_SMALL") yPos = GROUND_Y - 60;
+          if (type === "FLYING_LARGE") yPos = GROUND_Y - 80;
 
           state.obstacles.push({
             type,
             x: CANVAS_W + 50,
             y: yPos,
-            width,
-            height,
+            width: hitW,
+            height: hitH,
             markedForDeletion: false,
           });
 
@@ -297,7 +313,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         });
         state.obstacles = state.obstacles.filter((o) => !o.markedForDeletion);
 
-        // 当たり判定（当たり判定は小さい箱のまま）
+        // 当たり判定
         const pLeft = state.player.x;
         const pRight = state.player.x + state.player.width;
         const pBottom = state.player.y;
@@ -320,9 +336,14 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           if (hit) {
             state.isPlaying = false;
             state.player.animState = "die";
+
             if (!state.hasGameOverSent) {
               state.hasGameOverSent = true;
-              onGameOver(Math.floor(scoreRef.current));
+              const finalScore = Math.floor(scoreRef.current);
+              // ★ 2秒待ってから GameOver コール
+              setTimeout(() => {
+                onGameOver(finalScore);
+              }, GAMEOVER_DELAY);
             }
             break;
           }
@@ -336,12 +357,14 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
       ctx.fillStyle = "#8fd3ff";
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
+      const stateForDraw = gameState.current;
+
       // 背景 FAR
       if (assets.bgFar) {
         const img = assets.bgFar;
         const drawH = CANVAS_H - GROUND_HEIGHT;
         const drawW = CANVAS_W;
-        const offset = ((state.bgFarOffset % drawW) + drawW) % drawW;
+        const offset = ((stateForDraw.bgFarOffset % drawW) + drawW) % drawW;
         let x = -offset;
         while (x < CANVAS_W) {
           ctx.drawImage(
@@ -364,7 +387,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         const img = assets.bgMid;
         const drawH = CANVAS_H - GROUND_HEIGHT;
         const drawW = CANVAS_W;
-        const offset = ((state.bgMidOffset % drawW) + drawW) % drawW;
+        const offset = ((stateForDraw.bgMidOffset % drawW) + drawW) % drawW;
         let x = -offset;
         while (x < CANVAS_W) {
           ctx.drawImage(
@@ -387,7 +410,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         const img = assets.ground;
         const scale = GROUND_HEIGHT / img.height;
         const tileW = img.width * scale;
-        const offset = ((state.groundOffset % tileW) + tileW) % tileW;
+        const offset = ((stateForDraw.groundOffset % tileW) + tileW) % tileW;
         let x = -offset;
         while (x < CANVAS_W) {
           ctx.drawImage(
@@ -408,22 +431,14 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         ctx.fillRect(0, GROUND_Y, CANVAS_W, GROUND_HEIGHT);
       }
 
-      // ===== プレイヤー描画（1.5倍 & アスペクト維持）=====
-      const p = state.player;
-      const baseImg =
-        assets.charaRun1 || assets.charaRun2 || assets.charaDie || null;
+      // ===== プレイヤー描画（縦横比そのまま）=====
+      const p = stateForDraw.player;
 
-      let visualH = p.height * PLAYER_VISUAL_SCALE;
-      let visualW = p.width * PLAYER_VISUAL_SCALE;
+      const charVisualW = CHAR_BASE.width * CHAR_SCALE;
+      const charVisualH = CHAR_BASE.height * CHAR_SCALE;
 
-      if (baseImg) {
-        const aspect = baseImg.width / baseImg.height;
-        visualH = p.height * PLAYER_VISUAL_SCALE;
-        visualW = visualH * aspect;
-      }
-
-      const drawXBase = p.x - (visualW - p.width) / 2;
-      const drawYBase = p.y - visualH;
+      const drawXBase = p.x - (charVisualW - p.width) / 2;
+      const drawYBase = p.y - charVisualH + CHAR_FOOT_OFFSET;
 
       let playerImg: HTMLImageElement | null = null;
       if (p.animState === "die") {
@@ -443,26 +458,35 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           playerImg.height,
           drawXBase,
           drawYBase,
-          visualW,
-          visualH
+          charVisualW,
+          charVisualH
         );
       } else {
         ctx.fillStyle = "red";
-        ctx.fillRect(drawXBase, drawYBase, visualW, visualH);
+        ctx.fillRect(drawXBase, drawYBase, charVisualW, charVisualH);
       }
 
-      // ===== 敵（1.5倍表示）=====
-      state.obstacles.forEach((obs) => {
-        let img: HTMLImageElement | null = null;
-        if (obs.type === "GROUND_SMALL") img = assets.obsGroundSmall;
-        else if (obs.type === "GROUND_LARGE") img = assets.obsGroundLarge;
-        else if (obs.type === "FLYING_SMALL") img = assets.obsFlySmall;
-        else img = assets.obsFlyLarge;
+      // ===== 敵（縦横比そのまま）=====
+      stateForDraw.obstacles.forEach((obs) => {
+        let cfg = assetConfig.OBSTACLES.GROUND_SMALL;
+        let img: HTMLImageElement | null = assets.obsGroundSmall;
 
-        const vW = obs.width * OBSTACLE_VISUAL_SCALE;
-        const vH = obs.height * OBSTACLE_VISUAL_SCALE;
+        if (obs.type === "GROUND_LARGE") {
+          cfg = assetConfig.OBSTACLES.GROUND_LARGE;
+          img = assets.obsGroundLarge;
+        } else if (obs.type === "FLYING_SMALL") {
+          cfg = assetConfig.OBSTACLES.FLYING_SMALL;
+          img = assets.obsFlySmall;
+        } else if (obs.type === "FLYING_LARGE") {
+          cfg = assetConfig.OBSTACLES.FLYING_LARGE;
+          img = assets.obsFlyLarge;
+        }
+
+        const vW = cfg.width * OBSTACLE_SCALE;
+        const vH = cfg.height * OBSTACLE_SCALE;
+
         const drawX = obs.x - (vW - obs.width) / 2;
-        const drawY = obs.y - (vH - obs.height); // 足元合わせ
+        const drawY = obs.y - (vH - obs.height) + OBSTACLE_FOOT_OFFSET;
 
         if (img) {
           ctx.drawImage(
