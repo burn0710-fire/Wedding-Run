@@ -1,3 +1,4 @@
+// src/components/GameScreen.tsx
 import React, {
   useCallback,
   useEffect,
@@ -25,35 +26,36 @@ interface GameScreenProps {
   onGameOver: (score: number) => void;
 }
 
-// ===== 論理キャンバスサイズ =====
+// === キャンバス論理サイズ ===
 const CANVAS_W = 800;
 const CANVAS_H = 450;
 
+// ground の高さ（描画時）
 const GROUND_HEIGHT = 80;
 const GROUND_Y = CANVAS_H - GROUND_HEIGHT;
 
-// ===== プレイヤー =====
-const PLAYER_WIDTH = 80;   // 基本幅（アスペクトは画像から計算）
-const PLAYER_MAX_HEIGHT = 170;
+// ground の中で「足が乗るライン」のオフセット
+// 黄緑の地面 → 黄土色の土 の境目あたりを狙って少し下げる
+const FLOOR_OFFSET = 40;
+const FLOOR_Y = GROUND_Y + FLOOR_OFFSET; // キャラ・地上オブジェクトの足元 Y
 
-// Dino Run っぽい物理
+// === プレイヤー ===
+// 以前より約 1.5 倍くらい大きく
+const PLAYER_WIDTH = 110;
+const PLAYER_HEIGHT = 165;
+
+// Dino Run ぽい物理
 const GRAVITY = 0.8;
 const JUMP_STRENGTH = -15;
 
 // スピード関連
-const INITIAL_SPEED = 4;      // 最初かなりゆっくり
-const MAX_SPEED = 22;
-const ACCELERATION = 0.02;
+const INITIAL_SPEED = 5;   // 少しゆっくり目に
+const MAX_SPEED = 26;
+const ACCELERATION = 0.03;
 
-// 敵出現
+// 敵の出現間隔（frame 単位）
 const SPAWN_BASE_MIN = 60;
 const SPAWN_BASE_VAR = 80;
-
-// 当たり後に止めておく時間
-const GAME_OVER_PAUSE_MS = 1000;
-
-// キャラの足元を少しだけ上げて、障害物と揃える用オフセット（マイナスで上方向）
-const PLAYER_FOOT_OFFSET_Y = -8;
 
 type PlayerAnimState = "run" | "jump" | "die";
 
@@ -78,9 +80,13 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
   const scoreRef = useRef<number>(0);
   const [currentScore, setCurrentScore] = useState(0);
 
+  // GameOver 演出用
+  const hitTimeRef = useRef<number | null>(null);
+  const gameOverSentRef = useRef(false);
+  const HIT_HOLD_MS = 1000; // 当たり後 1 秒静止
+
   const gameState = useRef({
     isPlaying: true,
-    hasGameOverSent: false,
 
     // スクロール用
     speed: INITIAL_SPEED,
@@ -92,14 +98,14 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
 
     player: {
       x: 120,
-      y: GROUND_Y,
+      y: FLOOR_Y,
       dy: 0,
       isJumping: false,
       width: PLAYER_WIDTH,
-      height: 140,
+      height: PLAYER_HEIGHT,
       animState: "run" as PlayerAnimState,
       runFrame: 0 as 0 | 1,
-      runAnimTimer: 0,
+      runAnimTimer: 0, // ms
     },
 
     obstacles: [] as Obstacle[],
@@ -119,7 +125,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     loaded: false,
   });
 
-  // ===== 画像読み込み =====
+  // === 画像読み込み ===
   useEffect(() => {
     const loadAll = async () => {
       const [
@@ -159,19 +165,12 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         charaDie: chara3,
         loaded: true,
       };
-
-      // キャラの高さを画像比率から決め直しておく
-      if (chara1) {
-        const aspect = chara1.height / chara1.width;
-        const h = Math.min(PLAYER_WIDTH * aspect, PLAYER_MAX_HEIGHT);
-        gameState.current.player.height = h;
-      }
     };
 
     loadAll();
   }, []);
 
-  // ===== ジャンプ開始 =====
+  // === ジャンプ開始 ===
   const startJump = useCallback(() => {
     const state = gameState.current;
     if (!state.isPlaying) return;
@@ -183,7 +182,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     }
   }, []);
 
-  // ===== ジャンプボタン離し =====
+  // === ジャンプボタン離し ===
   const endJump = useCallback(() => {
     const state = gameState.current;
     if (state.player.isJumping && state.player.dy < -2) {
@@ -191,7 +190,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
     }
   }, []);
 
-  // ===== メインループ =====
+  // === メインループ ===
   const update = useCallback(
     (time: number) => {
       const canvas = canvasRef.current;
@@ -205,7 +204,16 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
       const state = gameState.current;
       const assets = assetsRef.current;
 
-      // スコア更新
+      // GameOver 待機中なら、1 秒経ったタイミングで onGameOver を呼ぶ
+      if (!state.isPlaying && hitTimeRef.current !== null && !gameOverSentRef.current) {
+        const elapsed = time - hitTimeRef.current;
+        if (elapsed >= HIT_HOLD_MS) {
+          gameOverSentRef.current = true;
+          onGameOver(Math.floor(scoreRef.current));
+        }
+      }
+
+      // スコア更新（動いている間のみ）
       if (state.isPlaying) {
         scoreRef.current +=
           0.1 * (state.speed / INITIAL_SPEED) * (dtMs / 16.67);
@@ -213,12 +221,12 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         if (s !== currentScore) setCurrentScore(s);
       }
 
-      // ===== 状態更新 =====
+      // ===== 更新 =====
       if (state.isPlaying) {
         // スピードアップ
         state.speed = Math.min(MAX_SPEED, state.speed + ACCELERATION);
 
-        // 背景スクロール（右→左へ）
+        // 背景スクロール（右→左）
         state.bgFarOffset += state.speed * 0.3;
         state.bgMidOffset += state.speed * 0.6;
         state.groundOffset += state.speed;
@@ -227,9 +235,9 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         state.player.dy += GRAVITY;
         state.player.y += state.player.dy;
 
-        // 地面との衝突
-        if (state.player.y > GROUND_Y) {
-          state.player.y = GROUND_Y;
+        // 地面との衝突（足元が FLOOR_Y より下に行かないように）
+        if (state.player.y > FLOOR_Y) {
+          state.player.y = FLOOR_Y;
           state.player.dy = 0;
 
           if (state.player.isJumping) {
@@ -238,7 +246,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           }
         }
 
-        // 走りアニメーション
+        // 走りアニメーション（run のときだけ）
         if (state.player.animState === "run") {
           state.player.runAnimTimer += dtMs;
           if (state.player.runAnimTimer > 120) {
@@ -250,39 +258,39 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           state.player.runFrame = 0;
         }
 
-        // 敵の出現
+        // 敵の出現管理
         state.frameCount++;
         if (state.frameCount > state.nextSpawnThreshold) {
           state.frameCount = 0;
 
           const r = Math.random();
           let type: ObstacleType = "GROUND_SMALL";
-          let width = 30;
-          let height = 30;
-          let yPos = GROUND_Y - height;
+          let width = 70;
+          let height = 90;
+          let yPos = FLOOR_Y - height;
 
           if (r < 0.4) {
             type = "GROUND_SMALL";
-            width = 36;
-            height = 46;
-            yPos = GROUND_Y - height;
+            width = 70;
+            height = 90;
+            yPos = FLOOR_Y - height;
           } else if (r < 0.7) {
             type = "GROUND_LARGE";
-            width = 42;
-            height = 72;
-            yPos = GROUND_Y - height;
-          } else if (r < 0.9) {
-            // 小さい飛び障害物：プレイヤーの下をくぐれる高さ
-            type = "FLYING_SMALL";
-            width = 70;
-            height = 40;
-            yPos = GROUND_Y - 90; // 低めを飛ぶ
-          } else {
-            // 大きい飛び障害物：しっかりジャンプすれば越えられる高さ
-            type = "FLYING_LARGE";
             width = 90;
-            height = 55;
-            yPos = GROUND_Y - 120;
+            height = 130;
+            yPos = FLOOR_Y - height;
+          } else if (r < 0.9) {
+            type = "FLYING_SMALL";
+            width = 90;
+            height = 70;
+            // 下をくぐれるくらいの高さ（足元より少し上）
+            yPos = FLOOR_Y - height - 70;
+          } else {
+            type = "FLYING_LARGE";
+            width = 120;
+            height = 90;
+            // こちらもギリギリ飛び越える or くぐるくらい
+            yPos = FLOOR_Y - height - 60;
           }
 
           state.obstacles.push({
@@ -308,15 +316,16 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         state.obstacles = state.obstacles.filter((o) => !o.markedForDeletion);
 
         // 当たり判定
-        const p = state.player;
-        const pLeft = p.x + 10;
-        const pRight = p.x + p.width - 10;
-        const pBottom = p.y + PLAYER_FOOT_OFFSET_Y; // 実際の足位置で判定
-        const pTop = pBottom - p.height + 10;
+        const pLeft = state.player.x;
+        const pRight = state.player.x + state.player.width;
+        const pBottom = state.player.y;
+        const pTop = state.player.y - state.player.height;
+
+        const pad = 10;
 
         for (const obs of state.obstacles) {
-          const oLeft = obs.x + 8;
-          const oRight = obs.x + obs.width - 8;
+          const oLeft = obs.x + pad;
+          const oRight = obs.x + obs.width - pad;
           const oTop = obs.y;
           const oBottom = obs.y + obs.height;
 
@@ -329,15 +338,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           if (hit) {
             state.isPlaying = false;
             state.player.animState = "die";
-
-            if (!state.hasGameOverSent) {
-              state.hasGameOverSent = true;
-              // 1秒ほどその場で止めてから GameOver を通知
-              const finalScore = Math.floor(scoreRef.current);
-              setTimeout(() => {
-                onGameOver(finalScore);
-              }, GAME_OVER_PAUSE_MS);
-            }
+            hitTimeRef.current = time;
             break;
           }
         }
@@ -346,7 +347,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
       // ===== 描画 =====
       ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
-      // ベース空色
+      // 空色のベース
       ctx.fillStyle = "#8fd3ff";
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
@@ -417,27 +418,25 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           );
           x += tileW;
         }
+      } else {
+        ctx.fillStyle = "#4caf50";
+        ctx.fillRect(0, GROUND_Y, CANVAS_W, GROUND_HEIGHT);
       }
 
-      // プレイヤー描画（縦横比維持）
+      // プレイヤー
       const p = state.player;
-      const feetY = p.y + PLAYER_FOOT_OFFSET_Y;
+      const pyTop = p.y - p.height;
       let playerImg: HTMLImageElement | null = null;
 
       if (p.animState === "die") {
         playerImg = assets.charaDie;
       } else if (p.animState === "jump") {
-        playerImg = assets.charaRun1;
+        playerImg = assets.charaRun1; // ジャンプ中は 1 枚目固定
       } else {
         playerImg = p.runFrame === 0 ? assets.charaRun1 : assets.charaRun2;
       }
 
       if (playerImg) {
-        const aspect = playerImg.height / playerImg.width;
-        const drawW = p.width;
-        const drawH = drawW * aspect;
-        const topY = feetY - drawH;
-
         ctx.drawImage(
           playerImg,
           0,
@@ -445,14 +444,13 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           playerImg.width,
           playerImg.height,
           p.x,
-          topY,
-          drawW,
-          drawH
+          pyTop,
+          p.width,
+          p.height
         );
       } else {
-        const topY = feetY - p.height;
         ctx.fillStyle = "red";
-        ctx.fillRect(p.x, topY, p.width, p.height);
+        ctx.fillRect(p.x, pyTop, p.width, p.height);
       }
 
       // 敵
@@ -464,12 +462,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         else img = assets.obsFlyLarge;
 
         if (img) {
-          // 縦横比維持
-          const aspect = img.height / img.width;
-          const drawW = obs.width;
-          const drawH = drawW * aspect;
-          const topY = obs.y - (drawH - obs.height);
-
           ctx.drawImage(
             img,
             0,
@@ -477,9 +469,9 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
             img.width,
             img.height,
             obs.x,
-            topY,
-            drawW,
-            drawH
+            obs.y,
+            obs.width,
+            obs.height
           );
         } else {
           ctx.fillStyle = "#1d4ed8";
@@ -516,7 +508,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
       onTouchStart={startJump}
       onTouchEnd={endJump}
     >
-      {/* ゲーム画面。スマホで足元が見えるように少し上にオフセット */}
+      {/* 中央に固定サイズのゲーム画面を表示（スマホ横でも ground が見えるよう上下中央寄せ） */}
       <div className="absolute inset-0 flex items-center justify-center">
         <div
           style={{
@@ -524,7 +516,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
             height: CANVAS_H,
             border: "4px solid #ffd800",
             boxSizing: "content-box",
-            transform: "translateY(-40px)", // ここで全体を少し上に持ち上げる
           }}
         >
           <canvas
@@ -536,7 +527,6 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         </div>
       </div>
 
-      {/* スコア */}
       <div className="absolute top-4 right-4 bg-white/80 px-4 py-2 rounded-full font-mono text-xl font-bold text-orange-600 shadow-sm z-10">
         SCORE: {Math.floor(scoreRef.current).toString().padStart(5, "0")}
       </div>
