@@ -32,21 +32,21 @@ const CANVAS_H = 450;
 const GROUND_HEIGHT = 80;
 const GROUND_Y = CANVAS_H - GROUND_HEIGHT;
 
-// ==== プレイヤー（当たり判定用）====
+// ==== プレイヤー（当たり判定用の箱）====
 const PLAYER_WIDTH = 60;
 const PLAYER_HEIGHT = 80;
 
-// 描画用スケール・演出関連
-const GAMEOVER_DELAY = 2000; // ms
-const CHAR_FOOT_OFFSET = 10; // 足元を少し下げて地面に乗せる
-const OBSTACLE_FOOT_OFFSET = 10;
+// ---- 描画オフセット・演出関連 ----
+const GAMEOVER_DELAY = 1000;       // ★ 当たり後 1 秒で GameOver
+const CHAR_FOOT_OFFSET = 28;       // ★ 足元を下げて花あたりに乗る感じ
+const OBSTACLE_FOOT_OFFSET = 20;
 
 // Dino Run ぽい物理
 const GRAVITY = 0.8;
 const JUMP_STRENGTH = -15;
 
 // スピード関連
-const INITIAL_SPEED = 4; // 少しゆっくりスタート
+const INITIAL_SPEED = 4;           // ゆっくり目スタート
 const MAX_SPEED = 26;
 const ACCELERATION = 0.02;
 
@@ -56,11 +56,14 @@ const SPAWN_BASE_VAR = 80;
 
 // === スプライトの元サイズから描画スケール計算 ===
 const CHAR_BASE = assetConfig.PLAYER.SPRITES.RUN_1;
-// 「当たり判定箱の高さ 80 を 1.5倍」に相当する高さになるようにスケール
+// 当たり判定高さ 80 の 1.5 倍くらいに見せる
 const CHAR_TARGET_VISUAL_H = PLAYER_HEIGHT * 1.5;
 const CHAR_SCALE = CHAR_TARGET_VISUAL_H / CHAR_BASE.height;
 
-const OBSTACLE_SCALE = 0.35; // 障害物の見た目サイズ
+// 障害物の見た目スケール（タイプ別）
+const OBSTACLE_SCALE_GROUND = 0.40;
+const OBSTACLE_SCALE_FLY_SMALL = 0.32;
+const OBSTACLE_SCALE_FLY_LARGE = 0.26;
 
 type PlayerAnimState = "run" | "jump" | "die";
 
@@ -269,27 +272,29 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
             type = "FLYING_LARGE";
           }
 
-          // 当たり判定用の箱サイズ（見た目より少し小さめでOK）
+          // 当たり判定用の箱サイズ・高さ（ざっくり）
           let hitW = 40;
           let hitH = 50;
+          let yPos = GROUND_Y - hitH + 4; // 少し埋めて足が花ラインに乗る感じ
 
           if (type === "GROUND_SMALL") {
-            hitW = 35;
-            hitH = 40;
+            hitW = 38;
+            hitH = 45;
+            yPos = GROUND_Y - hitH + 4;
           } else if (type === "GROUND_LARGE") {
-            hitW = 45;
-            hitH = 70;
+            hitW = 50;
+            hitH = 80;
+            yPos = GROUND_Y - hitH + 4;
           } else if (type === "FLYING_SMALL") {
+            hitW = 35;
+            hitH = 28;
+            yPos = GROUND_Y - 90; // 少し高め：ジャンプで当てやすい
+          } else if (type === "FLYING_LARGE") {
+            // ★ 大型は高め＋薄めの当たり判定 → 下をくぐれる
             hitW = 40;
-            hitH = 30;
-          } else {
-            hitW = 55;
-            hitH = 40;
+            hitH = 28;
+            yPos = GROUND_Y - 120;
           }
-
-          let yPos = GROUND_Y - hitH;
-          if (type === "FLYING_SMALL") yPos = GROUND_Y - 60;
-          if (type === "FLYING_LARGE") yPos = GROUND_Y - 80;
 
           state.obstacles.push({
             type,
@@ -340,7 +345,7 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
             if (!state.hasGameOverSent) {
               state.hasGameOverSent = true;
               const finalScore = Math.floor(scoreRef.current);
-              // ★ 2秒待ってから GameOver コール
+              // ★ 1 秒待ってから GameOver
               setTimeout(() => {
                 onGameOver(finalScore);
               }, GAMEOVER_DELAY);
@@ -428,10 +433,10 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         }
       } else {
         ctx.fillStyle = "#4caf50";
-        ctx.fillRect(0, GROUND_Y, CANVAS_W, GROUND_HEIGHT);
+        ctx.fillRect(0, GROUND_Y, CANVAS_H, GROUND_HEIGHT);
       }
 
-      // ===== プレイヤー描画（縦横比そのまま）=====
+      // ===== プレイヤー描画（縦横比維持）=====
       const p = stateForDraw.player;
 
       const charVisualW = CHAR_BASE.width * CHAR_SCALE;
@@ -466,24 +471,28 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         ctx.fillRect(drawXBase, drawYBase, charVisualW, charVisualH);
       }
 
-      // ===== 敵（縦横比そのまま）=====
+      // ===== 敵（縦横比維持）=====
       stateForDraw.obstacles.forEach((obs) => {
         let cfg = assetConfig.OBSTACLES.GROUND_SMALL;
         let img: HTMLImageElement | null = assets.obsGroundSmall;
+        let scale = OBSTACLE_SCALE_GROUND;
 
         if (obs.type === "GROUND_LARGE") {
           cfg = assetConfig.OBSTACLES.GROUND_LARGE;
           img = assets.obsGroundLarge;
+          scale = OBSTACLE_SCALE_GROUND;
         } else if (obs.type === "FLYING_SMALL") {
           cfg = assetConfig.OBSTACLES.FLYING_SMALL;
           img = assets.obsFlySmall;
+          scale = OBSTACLE_SCALE_FLY_SMALL;
         } else if (obs.type === "FLYING_LARGE") {
           cfg = assetConfig.OBSTACLES.FLYING_LARGE;
           img = assets.obsFlyLarge;
+          scale = OBSTACLE_SCALE_FLY_LARGE;
         }
 
-        const vW = cfg.width * OBSTACLE_SCALE;
-        const vH = cfg.height * OBSTACLE_SCALE;
+        const vW = cfg.width * scale;
+        const vH = cfg.height * scale;
 
         const drawX = obs.x - (vW - obs.width) / 2;
         const drawY = obs.y - (vH - obs.height) + OBSTACLE_FOOT_OFFSET;
