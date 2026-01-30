@@ -2,7 +2,7 @@
 
 // base は "/" または "/Wedding-Run/" のどちらにもなる。
 // import.meta.env.BASE_URL を先頭につければ両対応できる。
-const IMAGE_BASE = `${import.meta.env.BASE_URL}assets/images`;
+const IMAGE_BASE = "assets/images";
 
 const assetConfig = {
   BACKGROUND: {
