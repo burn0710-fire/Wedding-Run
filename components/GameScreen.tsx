@@ -1,138 +1,125 @@
+// components/GameScreen.tsx
 import React, {
   useCallback,
   useEffect,
   useRef,
   useState,
 } from "react";
-import { ASSETS } from "../assets";
+import assetConfig from "../config/assets";
 
-// ==== 型定義 ====
+type ObstacleType =
+  | "GROUND_SMALL"
+  | "GROUND_LARGE"
+  | "FLYING_SMALL"
+  | "FLYING_LARGE";
 
-type ObstacleType = "GROUND_SMALL" | "GROUND_LARGE" | "FLYING_SMALL" | "FLYING_LARGE";
-
-interface Obstacle {
+type Obstacle = {
   type: ObstacleType;
   x: number;
-  y: number; // top
+  y: number;
   width: number;
   height: number;
   markedForDeletion: boolean;
-}
-
-interface PlayerState {
-  x: number;
-  y: number; // feet position (ground 基準)
-  dy: number;
-  isJumping: boolean;
-  width: number;
-  height: number;
-}
-
-type PlayerAnimation = "RUN" | "JUMP" | "DIE";
+};
 
 interface GameScreenProps {
-  onGameOver?: (score: number) => void;
+  onGameOver: (score: number) => void;
 }
 
-// ==== ヘルパー ====
+// ==== キャンバス論理サイズ ====
+const CANVAS_W = 800;
+const CANVAS_H = 450;
 
-const loadImage = (src: string): Promise<HTMLImageElement | null> => {
+const GROUND_HEIGHT = 80;
+const GROUND_Y = CANVAS_H - GROUND_HEIGHT;
+
+// ==== プレイヤー ====
+// ここは「見かけの大きさ」なので、画像の実寸とは別で OK
+const PLAYER_WIDTH = 60;
+const PLAYER_HEIGHT = 80;
+
+// Dino Run ぽい物理（フレームベースくらいの感覚）
+const GRAVITY = 0.8;         // 落ちる強さ
+const JUMP_STRENGTH = -15;   // ジャンプの初速
+
+// スピード関連（px / frame 相当）
+const INITIAL_SPEED = 8;
+const MAX_SPEED = 26;
+const ACCELERATION = 0.03;
+
+// 敵の出現間隔（frame 単位）
+const SPAWN_BASE_MIN = 60;
+const SPAWN_BASE_VAR = 80;
+
+type PlayerAnimState = "run" | "jump" | "die";
+
+function loadImage(src: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
     img.src = src;
+    img.crossOrigin = "anonymous";
     img.onload = () => resolve(img);
     img.onerror = () => {
       console.warn("Failed to load image:", src);
       resolve(null);
     };
   });
-};
-
-// ==== 定数（物理・ゲームバランス） ====
-// Dino Run っぽい感覚になるように調整してあるので
-// 細かくいじりたくなったらここだけ触れば OK
-
-const CONFIG = {
-  logicalHeight: 300,      // ゲーム内の仮想高さ
-  gravity: 0.6,            // 重力（+方向が下）
-  jumpStrength: -11,       // 初速（マイナスで上方向）
-  initialSpeed: 5,         // 開始時スピード
-  maxSpeed: 22,            // 上限スピード
-  acceleration: 0.003,     // 毎フレームのスピード増加
-  baseScoreRate: 0.1,      // スコア加算のベース
-  runFrameInterval: 0.12,  // RUN アニメのフレーム切替秒
-};
-
-// ==== 本体コンポーネント ====
+}
 
 const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const requestRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
-  const scoreRef = useRef<number>(0);
 
+  const scoreRef = useRef<number>(0);
   const [currentScore, setCurrentScore] = useState(0);
 
-  // 画像
-  const bgFarRef = useRef<HTMLImageElement | null>(null);
-  const bgMidRef = useRef<HTMLImageElement | null>(null);
-  const groundRef = useRef<HTMLImageElement | null>(null);
-  const obstacleImagesRef = useRef<Record<ObstacleType, HTMLImageElement | null>>({
-    GROUND_SMALL: null,
-    GROUND_LARGE: null,
-    FLYING_SMALL: null,
-    FLYING_LARGE: null,
-  });
-  const playerSpritesRef = useRef<(HTMLImageElement | null)[]>([null, null, null]);
-
-  const assetsLoadedRef = useRef(false);
-
-  // ゲーム状態
   const gameState = useRef({
     isPlaying: true,
-    speed: CONFIG.initialSpeed,
+    hasGameOverSent: false,
+
+    // スクロール用
+    speed: INITIAL_SPEED,
     frameCount: 0,
+    nextSpawnThreshold: SPAWN_BASE_MIN,
     bgFarOffset: 0,
     bgMidOffset: 0,
-    nextSpawnThreshold: 0,
+    groundOffset: 0,
+
     player: {
-      x: 50,
-      y: 0, // 後で groundY に合わせる
+      x: 100,
+      y: GROUND_Y,
       dy: 0,
       isJumping: false,
-      width: ASSETS.PLAYER.SPRITES[0].width,
-      height: ASSETS.PLAYER.SPRITES[0].height,
-    } as PlayerState,
+      width: PLAYER_WIDTH,
+      height: PLAYER_HEIGHT,
+      animState: "run" as PlayerAnimState,
+      runFrame: 0 as 0 | 1,
+      runAnimTimer: 0, // ms
+    },
+
     obstacles: [] as Obstacle[],
-    playerAnimation: "RUN" as PlayerAnimation,
-    runFrameIndex: 0,     // 0 or 1（chara_1 / chara_2）
-    runFrameTimer: 0,     // 経過秒
-    playerDead: false,
   });
 
-  // ===== Canvas セットアップ =====
+  const assetsRef = useRef({
+    bgFar: null as HTMLImageElement | null,
+    bgMid: null as HTMLImageElement | null,
+    ground: null as HTMLImageElement | null,
+    obsGroundSmall: null as HTMLImageElement | null,
+    obsGroundLarge: null as HTMLImageElement | null,
+    obsFlySmall: null as HTMLImageElement | null,
+    obsFlyLarge: null as HTMLImageElement | null,
+    charaRun1: null as HTMLImageElement | null,
+    charaRun2: null as HTMLImageElement | null,
+    charaDie: null as HTMLImageElement | null,
+    loaded: false,
+  });
 
-  const setupCanvas = (canvas: HTMLCanvasElement) => {
-    const parent = canvas.parentElement;
-    if (!parent) return;
-
-    const rect = parent.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.scale(dpr, dpr);
-    }
-  };
-
-  // ===== アセット読み込み =====
-
+  // === 画像読み込み ===
   useEffect(() => {
-    const loadAssets = async () => {
+    const loadAll = async () => {
+      const sprites = assetConfig.PLAYER.SPRITES;
+
       const [
         bgFar,
         bgMid,
@@ -145,197 +132,152 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
         chara2,
         chara3,
       ] = await Promise.all([
-        loadImage(ASSETS.BACKGROUND.FAR.path),
-        loadImage(ASSETS.BACKGROUND.MID.path),
-        loadImage(ASSETS.GROUND.path),
-        loadImage(ASSETS.OBSTACLES.GROUND_SMALL.path),
-        loadImage(ASSETS.OBSTACLES.GROUND_LARGE.path),
-        loadImage(ASSETS.OBSTACLES.FLYING_SMALL.path),
-        loadImage(ASSETS.OBSTACLES.FLYING_LARGE.path),
-        loadImage(ASSETS.PLAYER.SPRITES[0].path),
-        loadImage(ASSETS.PLAYER.SPRITES[1].path),
-        loadImage(ASSETS.PLAYER.SPRITES[2].path),
+        loadImage(assetConfig.BACKGROUND.FAR.path),
+        loadImage(assetConfig.BACKGROUND.MID.path),
+        loadImage(assetConfig.GROUND.path),
+        loadImage(assetConfig.OBSTACLES.GROUND_SMALL.path),
+        loadImage(assetConfig.OBSTACLES.GROUND_LARGE.path),
+        loadImage(assetConfig.OBSTACLES.FLYING_SMALL.path),
+        loadImage(assetConfig.OBSTACLES.FLYING_LARGE.path),
+        loadImage(sprites.RUN_1.path),
+        loadImage(sprites.RUN_2.path),
+        loadImage(sprites.DIE.path),
       ]);
 
-      bgFarRef.current = bgFar;
-      bgMidRef.current = bgMid;
-      groundRef.current = ground;
-      obstacleImagesRef.current = {
-        GROUND_SMALL: obsGS,
-        GROUND_LARGE: obsGL,
-        FLYING_SMALL: obsFS,
-        FLYING_LARGE: obsFL,
+      assetsRef.current = {
+        bgFar,
+        bgMid,
+        ground,
+        obsGroundSmall: obsGS,
+        obsGroundLarge: obsGL,
+        obsFlySmall: obsFS,
+        obsFlyLarge: obsFL,
+        charaRun1: chara1,
+        charaRun2: chara2,
+        charaDie: chara3,
+        loaded: true,
       };
-      playerSpritesRef.current = [chara1, chara2, chara3];
-
-      assetsLoadedRef.current = true;
-
-      // ground の上に立つように、初期足位置をセット
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const parent = canvas.parentElement;
-      if (!parent) return;
-      const rect = parent.getBoundingClientRect();
-      const scale = rect.height / CONFIG.logicalHeight;
-      const groundHeight = CONFIG.logicalHeight * 0.15;
-      const groundY = CONFIG.logicalHeight - groundHeight;
-
-      const st = gameState.current;
-      st.player.y = groundY; // 足位置
     };
 
-    loadAssets();
+    loadAll();
   }, []);
 
-  // ===== 入力（ジャンプ） =====
-
+  // === ジャンプ開始 ===
   const startJump = useCallback(() => {
     const state = gameState.current;
     if (!state.isPlaying) return;
 
     if (!state.player.isJumping) {
-      state.player.dy = CONFIG.jumpStrength;
+      state.player.dy = JUMP_STRENGTH;
       state.player.isJumping = true;
-      state.playerAnimation = "JUMP";
-      state.runFrameTimer = 0;
+      state.player.animState = "jump";
     }
   }, []);
 
+  // === ジャンプボタン離し ===
   const endJump = useCallback(() => {
     const state = gameState.current;
+    // 長押しキャンセル：上向き速度が大きいときだけ減速
     if (state.player.isJumping && state.player.dy < -2) {
-      // 押しっぱなしで高くなりすぎないように、途中で話したら減速
       state.player.dy = state.player.dy * 0.45;
     }
   }, []);
 
-  // ===== メインループ =====
-
+  // === メインループ ===
   const update = useCallback(
     (time: number) => {
       const canvas = canvasRef.current;
-      if (!canvas) {
-        requestRef.current = requestAnimationFrame(update);
-        return;
-      }
+      if (!canvas) return;
       const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        requestRef.current = requestAnimationFrame(update);
-        return;
-      }
+      if (!ctx) return;
 
-      const dt =
-        (time - (lastTimeRef.current || time)) / 1000;
+      const dtMs = time - (lastTimeRef.current || time);
       lastTimeRef.current = time;
 
       const state = gameState.current;
-      const parent = canvas.parentElement;
-      if (!parent) {
-        requestRef.current = requestAnimationFrame(update);
-        return;
+      const assets = assetsRef.current;
+
+      // スコア更新（動いている間のみ）
+      if (state.isPlaying) {
+        scoreRef.current +=
+          0.1 * (state.speed / INITIAL_SPEED) * (dtMs / 16.67);
+        const s = Math.floor(scoreRef.current);
+        if (s !== currentScore) setCurrentScore(s);
       }
 
-      const rect = parent.getBoundingClientRect();
-      const scale = rect.height / CONFIG.logicalHeight;
-      const logicalWidth = rect.width / scale;
-
-      const groundHeight = CONFIG.logicalHeight * 0.15;
-      const groundY = CONFIG.logicalHeight - groundHeight;
-
       // ===== 更新 =====
+      if (state.isPlaying) {
+        // スピードアップ
+        state.speed = Math.min(MAX_SPEED, state.speed + ACCELERATION);
 
-      if (state.isPlaying && assetsLoadedRef.current) {
-        // スピード & スコア
-        state.speed = Math.min(
-          CONFIG.maxSpeed,
-          state.speed + CONFIG.acceleration
-        );
+        // 背景スクロール
+        state.bgFarOffset -= state.speed * 0.3;
+        state.bgMidOffset -= state.speed * 0.6;
+        state.groundOffset -= state.speed;
 
-        scoreRef.current +=
-          CONFIG.baseScoreRate *
-          (state.speed / CONFIG.initialSpeed);
-
-        const s = Math.floor(scoreRef.current);
-        if (s !== currentScore) {
-          setCurrentScore(s);
-        }
-
-        // 背景オフセット
-        state.bgFarOffset -= state.speed * 0.1;
-        state.bgMidOffset -= state.speed * 0.25;
-
-        const farWidth =
-          ASSETS.BACKGROUND.FAR.width *
-          (CONFIG.logicalHeight /
-            ASSETS.BACKGROUND.FAR.height);
-        const midWidth =
-          ASSETS.BACKGROUND.MID.width *
-          (CONFIG.logicalHeight /
-            ASSETS.BACKGROUND.MID.height);
-
-        if (state.bgFarOffset <= -farWidth)
-          state.bgFarOffset += farWidth;
-        if (state.bgMidOffset <= -midWidth)
-          state.bgMidOffset += midWidth;
-
-        // プレイヤー物理（y は足位置）
-        state.player.dy += CONFIG.gravity;
+        // プレイヤー物理
+        state.player.dy += GRAVITY;
         state.player.y += state.player.dy;
 
-        if (state.player.y > groundY) {
-          state.player.y = groundY;
+        // 地面との衝突
+        if (state.player.y > GROUND_Y) {
+          state.player.y = GROUND_Y;
           state.player.dy = 0;
 
           if (state.player.isJumping) {
             state.player.isJumping = false;
-            if (!state.playerDead) {
-              state.playerAnimation = "RUN";
-            }
+            state.player.animState = "run";
           }
         }
 
-        // RUN アニメーション
-        if (state.playerAnimation === "RUN") {
-          state.runFrameTimer += dt;
-          if (state.runFrameTimer > CONFIG.runFrameInterval) {
-            state.runFrameTimer = 0;
-            state.runFrameIndex =
-              state.runFrameIndex === 0 ? 1 : 0;
+        // 走りアニメーション（run のときだけ）
+        if (state.player.animState === "run") {
+          state.player.runAnimTimer += dtMs;
+          if (state.player.runAnimTimer > 120) {
+            state.player.runAnimTimer = 0;
+            state.player.runFrame = state.player.runFrame === 0 ? 1 : 0;
           }
-        } else if (
-          state.playerAnimation === "JUMP" ||
-          state.playerAnimation === "DIE"
-        ) {
-          // JUMP / DIE は固定フレーム
-          state.runFrameIndex = 0;
+        } else {
+          state.player.runAnimTimer = 0;
+          state.player.runFrame = 0;
         }
 
-        // 障害物スポーン
+        // 敵の出現管理
         state.frameCount++;
         if (state.frameCount > state.nextSpawnThreshold) {
           state.frameCount = 0;
 
-          const typeRand = Math.random();
+          const r = Math.random();
           let type: ObstacleType = "GROUND_SMALL";
-          if (typeRand < 0.4) type = "GROUND_SMALL";
-          else if (typeRand < 0.7) type = "GROUND_LARGE";
-          else if (typeRand < 0.9) type = "FLYING_SMALL";
-          else type = "FLYING_LARGE";
+          let width = 30;
+          let height = 30;
+          let yPos = GROUND_Y - height;
 
-          const asset = ASSETS.OBSTACLES[type];
-          let width = asset.width;
-          let height = asset.height;
-          let yPos = groundY - height;
-
-          if (type === "FLYING_SMALL") {
-            yPos = groundY - height - 60;
-          } else if (type === "FLYING_LARGE") {
-            yPos = groundY - height - 80;
+          if (r < 0.4) {
+            type = "GROUND_SMALL";
+            width = 30;
+            height = 30;
+            yPos = GROUND_Y - height;
+          } else if (r < 0.7) {
+            type = "GROUND_LARGE";
+            width = 45;
+            height = 55;
+            yPos = GROUND_Y - height;
+          } else if (r < 0.9) {
+            type = "FLYING_SMALL";
+            width = 30;
+            height = 25;
+            yPos = GROUND_Y - 60;
+          } else {
+            type = "FLYING_LARGE";
+            width = 50;
+            height = 40;
+            yPos = GROUND_Y - 80;
           }
 
           state.obstacles.push({
             type,
-            x: logicalWidth + 50,
+            x: CANVAS_W + 50,
             y: yPos,
             width,
             height,
@@ -343,273 +285,235 @@ const GameScreen: React.FC<GameScreenProps> = ({ onGameOver }) => {
           });
 
           state.nextSpawnThreshold =
-            60 + Math.random() * 80;
+            SPAWN_BASE_MIN + Math.random() * SPAWN_BASE_VAR;
         }
 
-        // 障害物更新 & 当たり判定
-        const playerTop =
-          state.player.y - state.player.height;
-        const playerBottom = state.player.y;
-        const playerLeft = state.player.x;
-        const playerRight =
-          state.player.x + state.player.width;
-
+        // 敵の移動
         state.obstacles.forEach((obs) => {
           obs.x -= state.speed;
-
           if (obs.x + obs.width < -100) {
             obs.markedForDeletion = true;
           }
+        });
+        state.obstacles = state.obstacles.filter((o) => !o.markedForDeletion);
 
-          const pPadding = 10;
-          const left = playerLeft + pPadding;
-          const right = playerRight - pPadding;
-          const top = playerTop + pPadding;
-          const bottom = playerBottom;
+        // 当たり判定
+        const pLeft = state.player.x;
+        const pRight = state.player.x + state.player.width;
+        const pBottom = state.player.y;
+        const pTop = state.player.y - state.player.height;
+
+        const pad = 10;
+
+        for (const obs of state.obstacles) {
+          const oLeft = obs.x + pad;
+          const oRight = obs.x + obs.width - pad;
+          const oTop = obs.y;
+          const oBottom = obs.y + obs.height;
 
           const hit =
-            left < obs.x + obs.width &&
-            right > obs.x &&
-            top < obs.y + obs.height &&
-            bottom > obs.y;
+            pLeft < oRight &&
+            pRight > oLeft &&
+            pTop < oBottom &&
+            pBottom > oTop;
 
-          if (hit && state.isPlaying) {
+          if (hit) {
             state.isPlaying = false;
-            state.playerDead = true;
-            state.playerAnimation = "DIE";
-            state.runFrameIndex = 2; // chara_3
-            if (onGameOver) {
+            state.player.animState = "die";
+            if (!state.hasGameOverSent) {
+              state.hasGameOverSent = true;
               onGameOver(Math.floor(scoreRef.current));
             }
+            break;
           }
-        });
-
-        state.obstacles =
-          state.obstacles.filter(
-            (o) => !o.markedForDeletion
-          );
+        }
       }
 
       // ===== 描画 =====
+      ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.restore();
+      // 空色ベース
+      ctx.fillStyle = "#8fd3ff";
+      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-      ctx.save();
-      ctx.scale(scale, scale);
-
-      // 背景ベース色
-      ctx.fillStyle = "#1f2933"; // 濃い青（外枠の色）
-      ctx.fillRect(
-        0,
-        0,
-        logicalWidth,
-        CONFIG.logicalHeight
-      );
-
-      // ゲームエリア（薄い水色）
-      ctx.fillStyle = "#bfdbfe";
-      ctx.fillRect(
-        0,
-        0,
-        logicalWidth,
-        CONFIG.logicalHeight
-      );
-
-      // 遠景・中景
-      if (assetsLoadedRef.current) {
-        const bgFarImg = bgFarRef.current;
-        const bgMidImg = bgMidRef.current;
-
-        if (bgFarImg) {
-          const baseScale =
-            CONFIG.logicalHeight /
-            ASSETS.BACKGROUND.FAR.height;
-          const drawWidth =
-            ASSETS.BACKGROUND.FAR.width * baseScale;
-
-          for (let i = -1; i < 3; i++) {
-            ctx.drawImage(
-              bgFarImg,
-              state.bgFarOffset + i * drawWidth,
-              0,
-              drawWidth,
-              CONFIG.logicalHeight
-            );
-          }
+      // 背景 FAR
+      if (assets.bgFar) {
+        const img = assets.bgFar;
+        const drawH = CANVAS_H - GROUND_HEIGHT;
+        const drawW = CANVAS_W;
+        const offset = ((state.bgFarOffset % drawW) + drawW) % drawW;
+        let x = -offset;
+        while (x < CANVAS_W) {
+          ctx.drawImage(
+            img,
+            0,
+            0,
+            img.width,
+            img.height,
+            x,
+            0,
+            drawW,
+            drawH
+          );
+          x += drawW;
         }
+      }
 
-        if (bgMidImg) {
-          const baseScale =
-            CONFIG.logicalHeight /
-            ASSETS.BACKGROUND.MID.height;
-          const drawWidth =
-            ASSETS.BACKGROUND.MID.width * baseScale;
-
-          for (let i = -1; i < 3; i++) {
-            ctx.drawImage(
-              bgMidImg,
-              state.bgMidOffset + i * drawWidth,
-              0,
-              drawWidth,
-              CONFIG.logicalHeight
-            );
-          }
+      // 背景 MID
+      if (assets.bgMid) {
+        const img = assets.bgMid;
+        const drawH = CANVAS_H - GROUND_HEIGHT;
+        const drawW = CANVAS_W;
+        const offset = ((state.bgMidOffset % drawW) + drawW) % drawW;
+        let x = -offset;
+        while (x < CANVAS_W) {
+          ctx.drawImage(
+            img,
+            0,
+            0,
+            img.width,
+            img.height,
+            x,
+            0,
+            drawW,
+            drawH
+          );
+          x += drawW;
         }
       }
 
       // 地面
-      const groundImg = groundRef.current;
-      const tileWidth =
-        ASSETS.GROUND.tileWidth || 100;
-      const groundTileWorldWidth = tileWidth;
-      const offsetX =
-        -((state.frameCount * state.speed) %
-          groundTileWorldWidth) || 0;
-
-      if (groundImg) {
-        for (
-          let i = -1;
-          i <
-          Math.ceil(
-            logicalWidth / groundTileWorldWidth
-          ) +
-            1;
-          i++
-        ) {
+      if (assets.ground) {
+        const img = assets.ground;
+        const scale = GROUND_HEIGHT / img.height;
+        const tileW = img.width * scale;
+        const offset = ((state.groundOffset % tileW) + tileW) % tileW;
+        let x = -offset;
+        while (x < CANVAS_W) {
           ctx.drawImage(
-            groundImg,
-            offsetX + i * groundTileWorldWidth,
-            groundY,
-            groundTileWorldWidth,
-            groundHeight
+            img,
+            0,
+            0,
+            img.width,
+            img.height,
+            x,
+            GROUND_Y,
+            tileW,
+            GROUND_HEIGHT
           );
+          x += tileW;
         }
       } else {
-        ctx.fillStyle = "#22c55e";
-        ctx.fillRect(
+        ctx.fillStyle = "#4caf50";
+        ctx.fillRect(0, GROUND_Y, CANVAS_W, GROUND_HEIGHT);
+      }
+
+      // プレイヤー
+      const p = state.player;
+      const pyTop = p.y - p.height;
+      let playerImg: HTMLImageElement | null = null;
+
+      if (p.animState === "die") {
+        playerImg = assets.charaDie;
+      } else if (p.animState === "jump") {
+        playerImg = assets.charaRun1; // ジャンプ中は 1 枚目固定
+      } else {
+        playerImg = p.runFrame === 0 ? assets.charaRun1 : assets.charaRun2;
+      }
+
+      if (playerImg) {
+        ctx.drawImage(
+          playerImg,
           0,
-          groundY,
-          logicalWidth,
-          groundHeight
+          0,
+          playerImg.width,
+          playerImg.height,
+          p.x,
+          pyTop,
+          p.width,
+          p.height
         );
+      } else {
+        // 画像未ロード時のフォールバック
+        ctx.fillStyle = "red";
+        ctx.fillRect(p.x, pyTop, p.width, p.height);
       }
 
-      // プレイヤー描画
-      if (assetsLoadedRef.current) {
-        let spriteIndex = 0;
-        if (state.playerAnimation === "RUN") {
-          spriteIndex = state.runFrameIndex; // 0 or 1
-        } else if (state.playerAnimation === "JUMP") {
-          spriteIndex = 0;
-        } else if (state.playerAnimation === "DIE") {
-          spriteIndex = 2;
-        }
-
-        const img = playerSpritesRef.current[spriteIndex];
-        const meta =
-          ASSETS.PLAYER.SPRITES[spriteIndex];
-
-        // meta.width/height は「ゲーム内の見た目サイズ」として使う
-        const drawW = meta.width;
-        const drawH = meta.height;
-
-        const x = state.player.x;
-        const yTop = state.player.y - drawH;
-
-        if (img) {
-          ctx.drawImage(
-            img,
-            x,
-            yTop,
-            drawW,
-            drawH
-          );
-        } else {
-          // 読み込み前のフォールバック
-          ctx.fillStyle = "#ef4444";
-          ctx.fillRect(x, yTop, drawW, drawH);
-        }
-      }
-
-      // 障害物描画
+      // 敵
       state.obstacles.forEach((obs) => {
-        const img =
-          obstacleImagesRef.current[obs.type];
+        let img: HTMLImageElement | null = null;
+        if (obs.type === "GROUND_SMALL") img = assets.obsGroundSmall;
+        else if (obs.type === "GROUND_LARGE") img = assets.obsGroundLarge;
+        else if (obs.type === "FLYING_SMALL") img = assets.obsFlySmall;
+        else img = assets.obsFlyLarge;
+
         if (img) {
           ctx.drawImage(
             img,
+            0,
+            0,
+            img.width,
+            img.height,
             obs.x,
             obs.y,
             obs.width,
             obs.height
           );
         } else {
-          ctx.fillStyle = "#2563eb";
-          ctx.fillRect(
-            obs.x,
-            obs.y,
-            obs.width,
-            obs.height
-          );
+          ctx.fillStyle = "#1d4ed8";
+          ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
         }
       });
 
-      ctx.restore();
-
-      requestRef.current =
-        requestAnimationFrame(update);
+      requestRef.current = requestAnimationFrame(update);
     },
     [currentScore, onGameOver]
   );
 
-  // ===== Resize & ループ開始 =====
-
+  // 初期セットアップ
   useEffect(() => {
-    const handleResize = () => {
-      if (canvasRef.current) {
-        setupCanvas(canvasRef.current);
-      }
-    };
-
-    window.addEventListener("resize", handleResize);
-    if (canvasRef.current) {
-      setupCanvas(canvasRef.current);
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.width = CANVAS_W;
+      canvas.height = CANVAS_H;
     }
 
+    lastTimeRef.current = performance.now();
     requestRef.current = requestAnimationFrame(update);
 
     return () => {
-      window.removeEventListener("resize", handleResize);
-      if (requestRef.current) {
-        cancelAnimationFrame(requestRef.current);
-      }
+      cancelAnimationFrame(requestRef.current);
     };
   }, [update]);
 
-  // ===== JSX =====
-
   return (
     <div
-      className="relative w-full h-full bg-slate-900 flex items-center justify-center select-none"
+      className="w-full h-full relative bg-[#003654] select-none"
       onMouseDown={startJump}
       onMouseUp={endJump}
       onTouchStart={startJump}
       onTouchEnd={endJump}
     >
-      <div className="border-4 border-yellow-400 w-[70vw] max-w-[960px] aspect-[4/2] bg-slate-200 relative">
-        <canvas
-          ref={canvasRef}
-          className="block w-full h-full"
-        />
-        <div className="absolute top-4 right-4 bg-white/80 px-4 py-2 rounded-full font-mono text-xl font-bold text-orange-600 shadow-sm z-10">
-          SCORE:{" "}
-          {Math.floor(scoreRef.current)
-            .toString()
-            .padStart(5, "0")}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div
+          style={{
+            width: CANVAS_W,
+            height: CANVAS_H,
+            border: "4px solid #ffd800",
+            boxSizing: "content-box",
+          }}
+        >
+          <canvas
+            ref={canvasRef}
+            width={CANVAS_W}
+            height={CANVAS_H}
+            style={{ width: "100%", height: "100%", display: "block" }}
+          />
         </div>
+      </div>
+
+      <div className="absolute top-4 right-4 bg-white/80 px-4 py-2 rounded-full font-mono text-xl font-bold text-orange-600 shadow-sm z-10">
+        SCORE: {Math.floor(scoreRef.current).toString().padStart(5, "0")}
       </div>
     </div>
   );
